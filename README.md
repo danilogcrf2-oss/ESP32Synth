@@ -1,4 +1,4 @@
-ESP32Synth (v1.1) - Motor de Síntese Polifônica Profissional
+ESP32Synth (v1.0) - Motor de Síntese Polifônica Profissional
 
 O ESP32Synth é uma biblioteca de áudio de alta performance desenvolvida para transformar o ESP32 em um sintetizador profissional com 32 vozes independentes. O projeto foi arquitetado para priorizar a velocidade de processamento, garantindo um sinal limpo, sem jitter ou travamentos, mesmo sob carga máxima.
 
