@@ -106,7 +106,7 @@ void addHarmonic(int voiceIndex) {
     // Toca a nota
     synth.noteOn(voiceIndex, freqHz * 100, vol); // *100 p/ CentiHz
 
-    // --- O PRINT QUE VOCÊ PEDIU ---
+   
     // Formatação alinhada para leitura fácil
     Serial.printf("[+] ADD Voz %02d | Harm: #%02d | Freq: %5d Hz | Vol: %03d | ", 
                   voiceIndex, harmonicNum, freqHz, vol);
@@ -129,3 +129,4 @@ void removeHarmonic(int voiceIndex) {
     Serial.println("Estado: OFF");
 
 }
+
