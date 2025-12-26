@@ -28,7 +28,6 @@ void setup() {
     Serial.begin(115200);
     delay(2000); 
 
-    Serial.println("\n\n=== ERPA TELEMETRY: FOURIER ENGINE ===");
     Serial.printf("CPU: %s | SR: %d Hz\n", synth.getChipModel(), synth.getSampleRate());
     Serial.println("Formula da Onda Quadrada: Volume = 1 / Harmônico");
     Serial.println("------------------------------------------------");
@@ -128,4 +127,5 @@ void removeHarmonic(int voiceIndex) {
     Serial.printf("[-] DEL Voz %02d | Harm: #%02d | Desligando...  | ", 
                   voiceIndex, harmonicNum);
     Serial.println("Estado: OFF");
+
 }
