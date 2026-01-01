@@ -3,7 +3,7 @@
 ESP32Synth synth;
 
 void setup() {
-    synth.begin(-1, 5); // Data 5
+    synth.begin(); // Data 5
     
     // Configura 7 vozes como Serra (SAW)
     for(int i=0; i<7; i++) {
