@@ -239,7 +239,7 @@ void voice04(unsigned int a) {
 }
 
 void setup() {
-  if (!synth.begin(-1, AUDIO_PIN))
+  if (!synth.begin(AUDIO_PIN,SMODE_PDM,-1,-1))// new begin
     while (1);
   for (int i = 0; i <= 7; i++) synth.setWave(i, WAVE_PULSE);
   synth.setWave(8, WAVE_SAW);

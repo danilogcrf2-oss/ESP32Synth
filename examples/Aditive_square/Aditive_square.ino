@@ -32,7 +32,7 @@ void setup() {
     Serial.println("Formula da Onda Quadrada: Volume = 1 / Harmônico");
     Serial.println("------------------------------------------------");
 
-    if (!synth.begin(-1, I2S_DATA)) {
+    if (!synth.begin(5)) {
         Serial.println("FALHA CRITICA NO I2S"); while(1);
     }
 
