@@ -8,7 +8,7 @@ int direction = 1;   // 1 = Subindo, -1 = Descendo
 
 void setup() {
   // Inicia o Synth nos pinos padrão do S3 Zero que também funcionam no esp32 (wroom32) ajuste se for outro.
-  synth.begin(-1, 5);
+  synth.begin(); // pino padrão sempre é o 5. 
   
   // Configura a Voz 0
   synth.setWave(0, WAVE_PULSE);       // Onda Quadrada/Pulso
