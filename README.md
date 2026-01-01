@@ -1,112 +1,253 @@
-ESP32Synth (v1.0) - Motor de Síntese Polifônica Profissional
+# ESP32Synth — Referência Completa (Documentação Detalhada)
 
-O ESP32Synth é uma biblioteca de áudio de alta performance desenvolvida para transformar o ESP32 em um sintetizador profissional com 32 vozes independentes. O projeto foi arquitetado para priorizar a velocidade de processamento, garantindo um sinal limpo, sem jitter ou travamentos, mesmo sob carga máxima.
+**ESP32Synth** é uma biblioteca de síntese de alto desempenho para ESP32, oferecendo até **32 vozes** polifônicas, wavetables dinâmicas, ADSR tradicional e um sistema opcional de **Instruments** (arrays de volumes e wavetables por estágio).
+
+---
+
+## Índice
+
+- Recursos principais
+- Instalação e inicialização (PDM / I2S) ✅ (nota PDM: use -1 nos pinos extras)
+- Conceitos-chave (vozes, envelopes, wavetables, instruments)
+- API detalhada (assinaturas + descrição de cada função)
+- Exemplos práticos (wavetables, instruments, ondas básicas)
+- Detalhes de implementação (IRAM_ATTR, fixed-point, morph)
+- Boas práticas e concorrência
+- Calibração de afinação
+- Contribuição & Licença
+
+---
+
+## 🔧 Recursos principais
+
+- Polifonia: até 32 vozes independentes
+- Saída: I2S / PDM (I2S padrão a 48 kHz, SYNTH_RATE ajustável)
+- Wavetables: suporte 4 / 8 / 16 bits
+- Engine híbrida: ADSR padrão + Instrument (A/D/S/R com arrays de vol/wave)
+- Sem floats no caminho crítico de áudio; operações em fixed-point
+- Funções sensíveis ao tempo colocadas em IRAM (`IRAM_ATTR`) para baixa latência
+
+---
+
+## 🚀 Instalação e inicialização
+
+1. Coloque a pasta `ESP32Synth` em `Arduino/libraries/`.
+2. Inclua a biblioteca:
+
+```cpp
+#include <ESP32Synth.h>
+ESP32Synth synth;
+```
+
+3. Inicialização (PDM ou I2S):
+
+- Exemplo PDM (note: **use -1 nos pinos não necessários**):
+
+```cpp
+// dataPin é o pino de saída PDM; clkPin/wsPin podem ser -1
+synth.begin(5, SMODE_PDM, -1, -1);
+```
+
+- Exemplo I2S:
+
+```cpp
+synth.begin(5, SMODE_I2S, 18, 19); // dataPin, SMODE_I2S, clkPin=BCLK, wsPin=LRCLK
+```
+
+> ⚠️ Observação: Para PDM, a biblioteca aceita passar `-1` para `clkPin` e `wsPin` — isso indica que não há pinos adicionais (somente `dataPin` é necessário).
+
+---
+
+## ✨ Conceitos essenciais
+
+- `Voice` — cada voz contém: fase, incrementador de fase (`phaseInc`), tipo de onda, ADSR, filtro, vibrato, e estado de *Instrument* (opcional).
+- `Instrument` — struct que define arrays de **volumes** e **wavetable IDs** para Attack, Decay, Sustain e Release. Se `inst == nullptr`, a voz usa o ADSR legado.
+- `Wavetable` — bloco de amostras carregado em RAM; é referenciado por um `id` global via `registerWavetable`.
+- `Control-rate` — taxa com que `processControl()` é chamada (padrão 100 Hz). Usada para avançar `Instrument` arrays.
+
+---
+
+## 📘 API Detalhada
+
+Abaixo cada função pública com assinatura e explicação breve de comportamento e parâmetros.
+
+### Inicialização
+
+- `bool begin(int dataPin = 5, SynthOutputMode mode = SMODE_PDM, int clkPin = -1, int wsPin = -1)`
+  - Inicializa driver PDM ou I2S. Para PDM, passe `-1` em `clkPin`/`wsPin` quando não aplicável.
+  - Retorna `true` se a criação do canal I2S/PDM e a tarefa de áudio for bem-sucedida.
+
+### Vozes e notas
+
+- `void noteOn(uint8_t voice, uint32_t freqCentiHz, uint8_t volume)`
+  - Liga uma voz (0..31). `freqCentiHz` é em centi-Hz (ex.: A4 = 44000). `volume` 0..255.
+  - Calcula `phaseInc` com aritmética 64-bit para alta precisão.
+  - Se a voz tiver `inst != nullptr`, reinicializa o estado do Instrument (stageIdx, controlTick, morph).
+
+- `void noteOff(uint8_t voice)`
+  - Coloca a voz em `ENV_RELEASE` (ou encerra se em Instrument e lenR == 0).
+
+- `void setFrequency(uint8_t voice, uint32_t freqCentiHz)`
+  - Atualiza `phaseInc` sem reiniciar o estado da voz.
+
+- `void setVolume(uint8_t voice, uint8_t volume)`
+  - Define o ganho (0..255) multiplicado pela saída antes do envelope.
+
+### Ondas e wavetables
+
+- `void setWave(uint8_t voice, WaveType type)`
+  - Define `WaveType` (SINE, TRIANGLE, SAW, PULSE, WAVETABLE, NOISE) para a voz. Se `WAVE_WAVETABLE`, `wtData` deve estar definido.
+
+- `void setPulseWidth(uint8_t voice, uint8_t width)`
+  - Define largura de pulso (PWM) para `WAVE_PULSE` (0..255).
+
+- `void setWavetable(uint8_t voice, const void* data, uint32_t size, BitDepth depth)`
+  - Define uma wavetable diretamente para uma voz (local). `depth` indica 4/8/16 bits.
+
+- `void setWavetable(const void* data, uint32_t size, BitDepth depth)`
+  - Aplica a mesma wavetable a todas as vozes (rápido atalho).
+
+- `void registerWavetable(uint16_t id, const void* data, uint32_t size, BitDepth depth)`
+  - Registra uma wavetable global referenciável por `Instrument` via `waveId` (0..MAX_WAVETABLES-1).
+  - **Valide** que `id < MAX_WAVETABLES` e que os dados permanecem válidos em RAM durante a reprodução.
+
+### Envelopes e Instrument
+
+- `void setEnv(uint8_t voice, uint16_t a_ms, uint16_t d_ms, uint8_t s_level, uint16_t r_ms)`
+  - Define ADSR clássico. `a_ms`, `d_ms`, `r_ms` em milissegundos; `s_level` 0..255.
+  - Valores também são guardados como `attackMs`, `decayMs`, `releaseMs` para uso do modo `Instrument`.
+
+- `void setInstrument(uint8_t voice, Instrument* inst)`
+  - Associa (ou remove com `nullptr`) um `Instrument` à voz. Ao associar, o estado do Instrument é resetado (stageIdx=0, controlTick=0...).
+  - Se `inst == nullptr`, a voz volta ao ADSR legado.
+
+- `void setControlRateHz(uint16_t hz)`
+  - Altera a taxa de controle (ex.: 100 Hz por padrão). Usada para calcular ticks por elemento do Instrument.
+
+### Filtro e vibrato
+
+- `void setFilter(uint8_t voice, FilterType type, uint8_t cutoff, uint8_t resonance)`
+  - Define filtro do tipo `FilterType` (LP/HP/BP). `cutoff` e `resonance` são mapeados internamente para coeficientes fixos.
+
+- `void setVibrato(uint8_t voice, uint32_t rateCentiHz, uint32_t depthCentiHz)`
+  - Define LFO para pitch-mod (rate/depth em centi-Hz * constantes internas para converção fixa).
+
+---
+
+## 🧪 Exemplos práticos (mais completos)
+
+### 1) PDM simples (apenas data pin)
+
+```cpp
+#include <ESP32Synth.h>
+ESP32Synth synth;
+
+void setup() {
+  synth.begin(5, SMODE_PDM, -1, -1); // -1 indica pinos não usados
+  synth.setWave(0, WAVE_SINE);
+  synth.noteOn(0, 44000, 200);
+}
+```
+
+### 2) Criar e usar uma wavetable a partir de uma onda básica
+
+```cpp
+// Gerar 256 samples seno (8-bit)
+const uint32_t WT_SIZE = 256;
+static uint8_t sineWT[WT_SIZE];
+for (uint32_t i = 0; i < WT_SIZE; ++i) {
+  sineWT[i] = (uint8_t)(128 + sin((2.0 * M_PI * i) / WT_SIZE) * 127.0);
+}
+// registrar globalmente
+synth.registerWavetable(10, sineWT, WT_SIZE, BITS_8);
+// usar em instrumento
+const uint8_t volA[] = {255, 200};
+const uint16_t waveA[] = {10, 10};
+Instrument inst = { volA, nullptr, 220, nullptr, waveA, nullptr, 2, 0, 0, 0 };
+synth.setInstrument(1, &inst);
+synth.noteOn(1, 66000, 220);
+```
+
+### 3) Instrument usando ondas básicas diretamente (agora suportado)
+
+- A partir desta versão, **cada elemento do Instrument pode referenciar uma onda básica** em vez de uma wavetable.
+- Para isso, forneça arrays `waveTypeA`, `waveTypeD`, `waveTypeR` (e `waveTypeS` como um único valor) com valores:
+  - `0` = usar `waveA/waveD/waveR` (wavetable id)
+  - `1` = SINE
+  - `2` = TRIANGLE
+  - `3` = SAW
+  - `4` = PULSE
+  - `5` = NOISE
+
+Exemplo: instrumento que intercala entre SINE e TRIANGLE no ataque
+
+```cpp
+const uint8_t volA[] = {255, 200};
+// waveA can be unused when using waveTypeA
+const uint8_t waveTypeA[] = {1, 2}; // 1=sine, 2=triangle
+// Instrument struct order: volA, volD, volS, volR,
+//                         waveA, waveD, waveS, waveR,
+//                         waveTypeA, waveTypeD, waveTypeS, waveTypeR,
+//                         lenA, lenD, lenR
+Instrument inst = { volA, nullptr, 220, nullptr, NULL, NULL, 0, 0, waveTypeA, NULL, 0, NULL, 2, 0, 0 };
+synth.setInstrument(0, &inst);
+```
+
+- Na renderização, o `morph` agora interpola entre as duas formas (se ambas forem básicas) usando uma interpolação linear inteira muito leve, com impacto mínimo na CPU.
+
+- Para sair do Instrument e voltar ao modo de onda básico (por exemplo, trocar para TRIANGLE imediatamente), há uma função de conveniência:
+
+```cpp
+synth.detachWave(0, WAVE_TRIANGLE); // função curta
+```
+
+Isto remove o `Instrument` da voz 0, inicia o ADSR (attack) e define o `WaveType` para `WAVE_TRIANGLE`.
+
+- CPU & 32 vozes: o morph entre ondas básicas (sine/tri/saw/pulse/noise) é suportado e implementado com interpolação inteira por amostra, o que tem custo de CPU muito baixo. Em geral um ESP32 moderno (especialmente ESP32-S3) consegue lidar com **32 vozes** com esta implementação, desde que **nem todas** as vozes usem filtros pesados, wavetables enormes ou efeitos de vibrato intenso ao mesmo tempo. Se notar saturação, reduza `controlRateHz`, desative recursos não essenciais, ou diminua a taxa de amostragem para aliviar CPU.
 
 
-1. Visão Geral e Objetivos
+---
 
-Polifonia de 32 Vozes: Processamento simultâneo de até 32 osciladores independentes.
+## 🔬 Como `Instrument` avança e calcula morph
 
-Saída de Alta Fidelidade: Áudio de 16 bits nativos transmitido via I2S PDM a uma taxa de 48kHz.
+- A cada tick de control-rate, `processControl()` é chamado. Para cada voz com `inst != nullptr`:
+  - Computa `ticks_total = stageMs * controlRateHz / 1000` e `ticksPer = max(1, ticks_total / len)`.
+  - Define `currWaveId`, `nextWaveId`, `vol` e calcula `morph` com base em `elapsed / ticksPer` (0..255).
+- No `render()`, o sample final entre `curr` e `next` é interpolado por:
 
-Baixo Consumo de CPU: Utilização de Tabelas de Busca (LUT) e matemática de inteiros para preservar os recursos do processador.
+```
+combined = ((int32_t)sampleA * (256 - morph) + (int32_t)sampleB * morph) >> 8;
+```
 
-Fácil Integração: Sistema de notas simplificado e controle total por meio de funções de alto e baixo nível.
+---
 
+## ⚠️ Boas práticas e concorrência
 
+- Proteger chamadas que atualizam wavetables em runtime (`registerWavetable`) se feitas de tarefas externas: `portENTER_CRITICAL()` / `portEXIT_CRITICAL()`.
+- Garanta que buffers de wavetables registrados permaneçam válidos na RAM durante a reprodução.
+- IDs de wavetable devem estar em `0..(MAX_WAVETABLES-1)`.
 
-2. Arquitetura do Sistema
+---
 
-Processamento Dual-Core: A renderização de áudio ocorre de forma isolada em uma tarefa dedicada, evitando que interrupções do código principal causem estalos no som.
+## 🔧 Depuração e calibração de afinação
 
-Gerenciamento de Memória: Todo o conteúdo de áudio e as Wavetables são carregados diretamente na RAM para acesso instantâneo.
+- Teste com A4 = 440 Hz; meça com afinador e, se necessário, ajuste `SYNTH_RATE` conforme:
 
-Mixagem de 32 bits: As vozes são somadas em um acumulador de 32 bits para evitar distorções (clipping) antes da compressão final para a saída de 16 bits.
-
-Polimorfismo de Bits: Suporte nativo para amostras de 4, 8 e 16 bits, permitindo economizar memória ou buscar estéticas sonoras específicas.
-
-
-
-3. Recursos de Síntese
-
-Formas de Onda: Suporte a ondas Senoidal, Triangular, Dente de Serra, Pulso (PWM) e gerador de Ruído.
-
-PWM (Pulse Width Modulation): Controle dinâmico da largura de pulso da onda quadrada (0-255).
-
-ADSR Engine: Envelopes de volume independentes por voz com precisão de 28 bits para transições suaves.
-
-
-Filtros SVF: Filtros de Estado Variável (Chamberlin) com modos Low-Pass, High-Pass e Band-Pass.
-
-
-Wavetables Dinâmicas: O motor aceita tabelas de qualquer tamanho, processando os dados conforme a profundidade de bits definida.
-
-
-
-4. Sistema de Notas e Frequência
-A biblioteca adota uma nomenclatura musical simplificada para facilitar a programação:
-
-
-Nomenclatura: Notas identificadas por letras minúsculas (ex: c4 para Dó 4) e sustenidos identificados pela letra s (ex: cs4 para Dó Sustenido 4).
-
-
-
-Tabela de Busca: Frequências pré-calculadas em Centi-Hz garantem precisão sem o custo computacional de cálculos de ponto flutuante em tempo real.
-
-
-
-5. Organização de Arquivos
-O projeto é dividido em três módulos principais para máxima organização:
-
-
-ESP32Synth.h: Definições das estruturas de voz, motor de síntese e macros de hardware.
-
-
-ESP32Synth.cpp: Implementação do driver I2S, algoritmos de renderização e mixagem.
-
-
-ESP32SynthNotes.h: Mapeamento completo de frequências musicais e constantes de notas.
-
-
-
-
-6. Controle e Automação
-
-Resolução de 8 bits: Parâmetros como Volume, Filtro e PWM operam em uma escala de 0 a 255, facilitando a integração com potenciômetros e mensagens MIDI CC.
-
-
-Controle Bruto: Possibilidade de alterar parâmetros de áudio em tempo real sem a necessidade de reiniciar o ciclo do envelope.
-
-
-
-7. Calibração de Hardware
-Devido a variações nos cristais osciladores de diferentes módulos ESP32, a taxa de amostragem real pode variar levemente, afetando a afinação. Utilize o procedimento abaixo para calibrar seu dispositivo:
-
-7.1 Procedimento de Teste
-Toque uma nota de referência, como o Lá 4 (a4 - 440Hz).
-
-Utilize um afinador de precisão para medir a frequência real de saída.
-
-7.2 Cálculo de Correção
-Caso a frequência esteja incorreta, aplique a seguinte fórmula para obter o novo valor da constante SYNTH_RATE:
-
+```
 Nova_Taxa = Taxa_Atual * (Freq_Medida / Freq_Esperada)
+```
 
-Exemplo:
+- Atualize `#define SYNTH_RATE` em `ESP32Synth.h` se precisar compensar variação do cristal.
 
-Taxa Atual: 52036
+---
 
-Frequência Medida: 406 Hz
+## 📝 Licença
 
-Frequência Esperada: 440 Hz
+Consulte `LICENSE` no repositório.
 
-Cálculo: 52036 * (406 / 440) = 48014
+---
+## ⚠️⚠️⚠️⚠️ AVISO !
 
-7.3 Aplicação
-Abra o arquivo ESP32Synth.h e atualize o valor definido para o seu hardware:
+O modo SMODE_I2S `NÃO` foi testado, irei testar e aprimorar esse modo em futuras atualizações. Por enquanto recomendo que use o SMODE_PDM.
 
-
-#define SYNTH_RATE 48014 // Valor calibrado
-
-
-Desenvolvido por Danilo.
+---
