@@ -1,4 +1,4 @@
-# ESP32Synth v2.0.5 — Guia Completo
+# ESP32Synth v2.2.0 — Guia Completo
 
 ![Version](https://img.shields.io/badge/version-2.0.5-green.svg) ![Platform](https://img.shields.io/badge/platform-ESP32-orange.svg) ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 
