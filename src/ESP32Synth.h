@@ -1,7 +1,6 @@
 /**
  * @file ESP32Synth.h
- * @brief Header corrigido com suporte a Loop PingPong/Reverse e Contador 64-bit
- * @brief Header corrected with PingPong/Reverse Loop support and 64-bit Counter
+ * @brief ESP32Synth Header
  */
 
 #ifndef ESP32_SYNTH_H
@@ -12,42 +11,69 @@
 #include "driver/i2s_pdm.h"
 #include "driver/i2s_std.h"
 
+// Driver do DAC apenas para ESP32 Clássico
+// DAC Driver for Classic ESP32 only
+#if defined(CONFIG_IDF_TARGET_ESP32)
+    #include "driver/dac_continuous.h"
+#endif
+
 #include "ESP32SynthNotes.h" 
 
 #if defined(CONFIG_IDF_TARGET_ESP32S3)
     #define SYNTH_CHIP "ESP32-S3"
-    #define SYNTH_RATE 52036 
 #elif defined(CONFIG_IDF_TARGET_ESP32)
     #define SYNTH_CHIP "ESP32-Standard"
-    #define SYNTH_RATE 48000 
 #else
     #define SYNTH_CHIP "Generic ESP32"
-    #define SYNTH_RATE 48000 
 #endif
 
-#define MAX_VOICES 32        // Máximo de vozes simultâneas / Maximum simultaneous voices
-#define I2S_RATE 48000       // Taxa de amostragem I2S / I2S sample rate
-#define ENV_MAX 268435456    // Valor máximo do envelope / Maximum envelope value
-#define MAX_WAVETABLES 1000  // Máximo de wavetables / Maximum wavetables
-#define MAX_ARP_NOTES 16     // Máximo de notas no arpejo / Maximum notes in arpeggio
+// Mantém compatibilidade com código legado. Use getSampleRate() para novos projetos.
+// Maintains compatibility with legacy code. Use getSampleRate() for new projects.
+#ifndef SYNTH_RATE
+#define SYNTH_RATE 48000
+#endif
 
-enum SynthOutputMode { SMODE_PDM, SMODE_I2S }; 
+// Máximo de vozes simultâneas
+// Maximum simultaneous voices
+#define MAX_VOICES 80
+
+// Valor máximo do envelope
+// Maximum envelope value
+#define ENV_MAX 268435456
+
+// Máximo de wavetables
+// Maximum wavetables
+#define MAX_WAVETABLES 1000
+
+// Máximo de notas no arpejo
+// Maximum notes in arpeggio
+#define MAX_ARP_NOTES 16
+
+enum SynthOutputMode { SMODE_PDM, SMODE_I2S, SMODE_DAC };
+
 enum WaveType { WAVE_SINE, WAVE_TRIANGLE, WAVE_SAW, WAVE_PULSE, WAVE_WAVETABLE, WAVE_NOISE, WAVE_SAMPLE };
 enum FilterType { FILTER_NONE, FILTER_LP, FILTER_HP, FILTER_BP };
 enum BitDepth { BITS_4, BITS_8, BITS_16 };
 enum EnvState { ENV_IDLE, ENV_ATTACK, ENV_DECAY, ENV_SUSTAIN, ENV_RELEASE };
-
-// --- NOVO ENUM PARA MODOS DE LOOP ---
-// --- NEW ENUM FOR LOOP MODES ---
+enum I2S_Depth { 
+    I2S_8BIT,   // Lo-Fi Bitcrusher (Hardware 16b, Software Mask)
+    I2S_16BIT,  // Padrão / Standard
+    I2S_32BIT   // Hi-Fi (Hardware 32b)
+};
+// Modos de Loop
+// Loop Modes
 enum LoopMode { 
     LOOP_OFF, 
-    LOOP_FORWARD,   // Esquerda -> Direita (Padrão) / Left -> Right (Default)
-    LOOP_PINGPONG,  // Vai e Volta / Back and Forth
-    LOOP_REVERSE    // Direita -> Esquerda / Right -> Left
+    LOOP_FORWARD,   // Esquerda -> Direita (Padrão)
+                    // Left -> Right (Default)
+    LOOP_PINGPONG,  // Vai e Volta
+                    // Back and Forth
+    LOOP_REVERSE    // Direita -> Esquerda
+                    // Right -> Left
 };
 
-// Definições para facilitar sua vida (Números negativos para ondas básicas)
-// Definitions to make life easier (Negative numbers for basic waves)
+// Definições para ondas básicas (usando números negativos)
+// Definitions for basic waves (using negative numbers)
 #define W_SINE     -1
 #define W_TRI      -2
 #define W_SAW      -3
@@ -87,14 +113,14 @@ struct SampleZone {
     uint32_t rootOverride; 
 };
 
-// --- STRUCT ATUALIZADA COM LOOP MODE ---
-// --- UPDATED STRUCT WITH LOOP MODE ---
+// Instrumento baseado em Samples
+// Sample-based Instrument
 struct Instrument_Sample {
     const SampleZone* zones;
     uint8_t           numZones;
-    LoopMode          loopMode;    // Novo: Modo de loop / New: Loop mode
-    uint32_t          loopStart;   // Novo: Início do loop / New: Loop start
-    uint32_t          loopEnd;     // Novo: Fim do loop (0 = fim do arquivo) / New: Loop end (0 = end of file)
+    LoopMode          loopMode;    // Modo de loop / Loop mode
+    uint32_t          loopStart;   // Início do loop / Loop start
+    uint32_t          loopEnd;     // Fim do loop (0 = fim do arquivo) / Loop end (0 = end of file)
 };
 
 struct Voice {
@@ -107,15 +133,13 @@ struct Voice {
     uint32_t rngState = 12345; 
     int16_t noiseSample = 0;   
     
-    // --- VIBRATO ---
-    // --- VIBRATO ---
+    // Vibrato
     uint32_t vibPhase = 0;
     uint32_t vibRateInc = 0;
     uint32_t vibDepthInc = 0;
     int32_t  vibOffset = 0; 
 
-    // --- TREMOLO ---
-    // --- TREMOLO ---
+    // Tremolo
     uint32_t trmPhase = 0;      
     uint32_t trmRateInc = 0;    
     uint16_t trmDepth = 0;      
@@ -128,20 +152,15 @@ struct Voice {
     uint32_t rateRelease = 0;
     uint32_t levelSustain = 0;
 
-    // Parâmetros de síntese legados
-    // Legacy synthesis parameters
+    // Parâmetros de síntese
+    // Synthesis parameters
     WaveType type = WAVE_SINE;
     const void* wtData = nullptr;
     uint32_t wtSize = 0;
-    BitDepth depth = BITS_8;
-    FilterType filterType = FILTER_NONE;
-    int32_t filterLow = 0;   
-    int32_t filterBand = 0;  
-    int16_t coefF = 0;       
-    int16_t coefQ = 0;       
+    BitDepth depth = BITS_8;    
 
-    // Estado do modo de instrumento
-    // Instrument mode state
+    // Estado do instrumento
+    // Instrument state
     Instrument* inst = nullptr;
     uint8_t stageIdx = 0;       
     uint32_t controlTick = 0;   
@@ -157,8 +176,8 @@ struct Voice {
     uint16_t decayMs = 0;
     uint16_t releaseMs = 0;
 
-    // Estado de deslize de tom (Pitch slide)
-    // Pitch slide state
+    // Estado do portamento (slide)
+    // Portamento (slide) state
     bool slideActive = false;
     uint32_t slideTicksRemaining = 0; 
     uint32_t slideTicksTotal = 0;     
@@ -177,20 +196,20 @@ struct Voice {
     uint16_t arpSpeedMs = 100;        
     uint32_t arpTickCounter = 0;     
 
-    // --- MOTOR DE SAMPLE ATUALIZADO (64 BIT + CONTROLE DE LOOP) ---
-    // --- UPDATED SAMPLE ENGINE (64 BIT + LOOP CONTROL) ---
+    // Motor de Sample
+    // Sample Engine
     Instrument_Sample* instSample = nullptr; 
     uint16_t curSampleId = 0;
     
-    // ATENÇÃO: Mudou para 64 bits para evitar overflow em samples grandes
-    // ATTENTION: Changed to 64 bits to avoid overflow in large samples
+    // Posição 64-bit para evitar overflow
+    // 64-bit position to avoid overflow
     uint64_t samplePos1616 = 0; 
     uint32_t sampleInc1616 = 0; 
     
-    // Controle de Loop avançado
-    // Advanced Loop Control
+    // Controle de Loop
+    // Loop Control
     LoopMode sampleLoopMode = LOOP_OFF;
-    bool     sampleDirection = true; // true = indo, false = voltando / true = going, false = returning
+    bool     sampleDirection = true; // true: forward, false: backward
     uint32_t sampleLoopStart = 0;
     uint32_t sampleLoopEnd = 0;
     bool     sampleFinished = false; 
@@ -201,10 +220,43 @@ public:
     ESP32Synth();
     ~ESP32Synth();
 
-    // Inicializa o sintetizador / Initialize the synthesizer
-    bool begin(int dataPin = 5, SynthOutputMode mode = SMODE_PDM, int clkPin = -1, int wsPin = -1);
+    // Inicializa o sintetizador.
+    // Initializes the synthesizer.
 
-    // Controle de notas / Note control
+    /**
+     * @brief Inicia o synth usando o DAC interno (apenas ESP32).
+     * @brief Starts the synth using the internal DAC (ESP32 only).
+     * @param dacPin O pino DAC a ser usado (25 ou 26). / The DAC pin to use (25 or 26).
+     */
+    bool begin(int dacPin);
+
+    /**
+     * @brief Inicia o synth em modo I2S com profundidade de 16-bit.
+     * @brief Starts the synth in I2S mode with 16-bit depth.
+     * @param bckPin Pino BCK. / BCK pin.
+     * @param wsPin Pino WS/LRCK. / WS/LRCK pin.
+     * @param dataPin Pino DATA. / DATA pin.
+     */
+    bool begin(int bckPin, int wsPin, int dataPin);
+
+    /**
+     * @brief Inicia o synth em modo I2S com profundidade de bits configurável.
+     * @brief Starts the synth in I2S mode with configurable bit depth.
+     * @param bckPin Pino BCK. / BCK pin.
+     * @param wsPin Pino WS/LRCK. / WS/LRCK pin.
+     * @param dataPin Pino DATA. / DATA pin.
+     * @param i2sDepth Profundidade de bits (8, 16 ou 32). / Bit depth (8, 16, or 32).
+     */
+    bool begin(int bckPin, int wsPin, int dataPin, I2S_Depth i2sDepth);
+
+    /**
+     * @brief Função de inicialização principal com todas as opções. As outras funções 'begin' chamam esta.
+     * @brief Main initialization function with all options. The other 'begin' functions call this one.
+     */
+    bool begin(int dataPin, SynthOutputMode mode, int clkPin, int wsPin, I2S_Depth i2sDepth);
+
+    // Controle de notas
+    // Note control
     void noteOn(uint8_t voice, uint32_t freqCentiHz, uint8_t volume);
     void noteOff(uint8_t voice); 
     void setFrequency(uint8_t voice, uint32_t freqCentiHz);
@@ -212,7 +264,6 @@ public:
     void setWave(uint8_t voice, WaveType type);
     void setPulseWidth(uint8_t voice, uint8_t width); 
     void setEnv(uint8_t voice, uint16_t a, uint16_t d, uint8_t s, uint16_t r);
-    void setFilter(uint8_t voice, FilterType type, uint8_t cutoff, uint8_t resonance);
     void setVibrato(uint8_t voice, uint32_t rateCentiHz, uint32_t depthCentiHz);
     void setTremolo(uint8_t voice, uint32_t rateCentiHz, uint16_t depth);
     void setWavetable(uint8_t voice, const void* data, uint32_t size, BitDepth depth);
@@ -237,7 +288,6 @@ public:
     uint32_t getOutputRaw(uint8_t voice);   
 
     // Samples
-    // Samples
     void setInstrument(uint8_t voice, Instrument_Sample* inst); 
     void registerSample(uint16_t id, const int16_t* data, uint32_t length, uint32_t sampleRate, uint32_t rootFreqCentiHz);
     
@@ -245,7 +295,7 @@ public:
     
     bool isVoiceActive(uint8_t voice) { return voices[voice].active; }
     const char* getChipModel() { return SYNTH_CHIP; }
-    uint32_t getSampleRate() { return SYNTH_RATE; }
+    int32_t getSampleRate() { return _sampleRate; }
 
     void detachArpeggio(uint8_t voice);
 
@@ -266,25 +316,35 @@ public:
         v->arpActive = true;
     }
 
+    void setMasterVolume(uint8_t volume); 
+    uint8_t getMasterVolume();
+
 private:
     struct WavetableEntry { const void* data; uint32_t size; BitDepth depth; };
 
     Voice voices[MAX_VOICES];
     WavetableEntry wavetables[MAX_WAVETABLES];
 
+    uint32_t _sampleRate = 48000; 
+    I2S_Depth _i2sDepth = I2S_16BIT; // Configuração salva
+
     i2s_chan_handle_t tx_handle = NULL;
+    #if defined(CONFIG_IDF_TARGET_ESP32)
+        dac_continuous_handle_t dac_handle = NULL;
+    #endif
+    SynthOutputMode currentMode = SMODE_PDM;
     static void audioTask(void* param);
     
-    void render(int16_t* buffer, int samples);
+    // Render agora aceita ponteiro genérico
+    void render(void* buffer, int samples);
     void processControl(); 
     
     uint32_t controlSampleCounter = 0; 
     uint16_t controlRateHz = 100;      
     uint32_t controlIntervalSamples = (SYNTH_RATE / 100);
 
-    inline int16_t fetchWavetableSample(uint16_t id, uint32_t phase);
-
-    int16_t sineLUT[256];
+    int16_t fetchWavetableSample(uint16_t id, uint32_t phase);
+    uint8_t _masterVolume = 255; 
 };
 
 #endif

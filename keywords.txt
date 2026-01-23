@@ -7,15 +7,15 @@
 #######################################
 
 ESP32Synth	KEYWORD1
-Voice	KEYWORD1
 Instrument	KEYWORD1
 Instrument_Sample	KEYWORD1
-SampleZone	KEYWORD1
+Voice	KEYWORD1
 SynthOutputMode	KEYWORD1
 WaveType	KEYWORD1
 FilterType	KEYWORD1
-LoopMode	KEYWORD1
 BitDepth	KEYWORD1
+EnvState	KEYWORD1
+LoopMode	KEYWORD1
 
 #######################################
 # Methods and Functions (KEYWORD2)
@@ -27,32 +27,41 @@ noteOff	KEYWORD2
 setFrequency	KEYWORD2
 setVolume	KEYWORD2
 setWave	KEYWORD2
+setPulseWidth	KEYWORD2
 setEnv	KEYWORD2
-setFilter	KEYWORD2
 setVibrato	KEYWORD2
 setTremolo	KEYWORD2
 setWavetable	KEYWORD2
-registerWavetable	KEYWORD2
-registerSample	KEYWORD2
 setInstrument	KEYWORD2
+detachWave	KEYWORD2
+detachInstrumentAndSetWave	KEYWORD2
+registerWavetable	KEYWORD2
+setControlRateHz	KEYWORD2
 slide	KEYWORD2
-setArpeggio	KEYWORD2
+slideTo	KEYWORD2
+getFrequencyCentiHz	KEYWORD2
+getVolume8Bit	KEYWORD2
+getEnv8Bit	KEYWORD2
 getOutput8Bit	KEYWORD2
+getVolumeRaw	KEYWORD2
+getEnvRaw	KEYWORD2
+getOutputRaw	KEYWORD2
+registerSample	KEYWORD2
+detachArpeggio	KEYWORD2
+setArpeggio	KEYWORD2
 renderLoop	KEYWORD2
 isVoiceActive	KEYWORD2
 getChipModel	KEYWORD2
 getSampleRate	KEYWORD2
-midiToFreq	KEYWORD2
 
 #######################################
 # Constants (LITERAL1)
 #######################################
 
-# Output Modes
-SMODE_I2S	LITERAL1
 SMODE_PDM	LITERAL1
+SMODE_I2S	LITERAL1
+SMODE_DAC	LITERAL1
 
-# Wave Types
 WAVE_SINE	LITERAL1
 WAVE_TRIANGLE	LITERAL1
 WAVE_SAW	LITERAL1
@@ -61,27 +70,11 @@ WAVE_WAVETABLE	LITERAL1
 WAVE_NOISE	LITERAL1
 WAVE_SAMPLE	LITERAL1
 
-# Filter Types
-FILTER_NONE	LITERAL1
-FILTER_OFF	LITERAL1
-FILTER_LP	LITERAL1
-FILTER_HP	LITERAL1
-FILTER_BP	LITERAL1
-
-# Bit Depth
-BITS_4	LITERAL1
-BITS_8	LITERAL1
-BITS_16	LITERAL1
-
-# Envelope States
-ENV_IDLE	LITERAL1
-ENV_ATTACK	LITERAL1
-ENV_DECAY	LITERAL1
-ENV_SUSTAIN	LITERAL1
-ENV_RELEASE	LITERAL1
-
-# Loop Modes
 LOOP_OFF	LITERAL1
 LOOP_FORWARD	LITERAL1
 LOOP_PINGPONG	LITERAL1
 LOOP_REVERSE	LITERAL1
+
+BITS_4	LITERAL1
+BITS_8	LITERAL1
+BITS_16	LITERAL1
