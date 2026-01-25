@@ -1,6 +1,6 @@
 # ESP32Synth v2.2.0 — Guia Completo
 
-![Version](https://img.shields.io/badge/version-2.0.5-green.svg) ![Platform](https://img.shields.io/badge/platform-ESP32-orange.svg) ![License](https://img.shields.io/badge/license-MIT-blue.svg)
+![Version](https://img.shields.io/badge/version-2.2.0-green.svg) ![Platform](https://img.shields.io/badge/platform-ESP32-orange.svg) ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 
 **[Português]** Biblioteca de síntese de áudio profissional e de alto desempenho para ESP32. Suporta até 80 vozes polifônicas, Wavetables, Sampler com Loops, ADSR, e Efeitos em tempo real.
 
