@@ -67,8 +67,8 @@ O ESP32Synth foi projetado com três objetivos principais:
 4.  Reinicie a IDE do Arduino.
 
 **Dependências:**
-*   **Hardware:** Qualquer placa ESP32, ESP32-S2, ESP32-S3 ou ESP32-C3.
-*   **Core:** `esp32` by Espressif Systems (v2.0.14+ ou v3.0.0+ recomendado).
+*   **Hardware:** Qualquer placa ESP32, ESP32-C6, ESP32-S3 ou ESP32-C3.
+*   **Core:** `esp32` by Espressif Systems (v3.0.0+ recomendado).
 
 ---
 
