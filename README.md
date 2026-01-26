@@ -519,8 +519,8 @@ ESP32Synth was designed with three main goals:
 4.  Restart the Arduino IDE.
 
 **Dependencies:**
-*   **Hardware:** Any ESP32, ESP32-S2, ESP32-S3, or ESP32-C3 board.
-*   **Core:** `esp32` by Espressif Systems (v2.0.14+ or v3.0.0+ recommended).
+*   **Hardware:** Any ESP32, ESP32-P4, ESP32-S3, or ESP32-C3 board.
+*   **Core:** `esp32` by Espressif Systems (v3.0.0+ recommended).
 
 ---
 
