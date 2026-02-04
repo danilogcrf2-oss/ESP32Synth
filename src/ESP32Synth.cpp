@@ -723,31 +723,38 @@ IRAM_ATTR int16_t ESP32Synth::fetchWavetableSample(uint16_t id, uint32_t phase) 
 }
 
 uint32_t ESP32Synth::getFrequencyCentiHz(uint8_t voice) {
-     if (voice >= MAX_VOICES) return 0; return voices[voice].freqVal; 
+     if (voice >= MAX_VOICES) return 0; 
+     return voices[voice].freqVal; 
 }
 
 uint8_t ESP32Synth::getVolume8Bit(uint8_t voice) { 
-    if (voice >= MAX_VOICES) return 0; return voices[voice].vol; 
+    if (voice >= MAX_VOICES) return 0; 
+    return voices[voice].vol; 
 }
 
 uint8_t ESP32Synth::getEnv8Bit(uint8_t voice) { 
-    if (voice >= MAX_VOICES) return 0; return (uint8_t)(voices[voice].currEnvVal >> 20); 
+    if (voice >= MAX_VOICES) return 0; 
+    return (uint8_t)(voices[voice].currEnvVal >> 20); 
 }
 
 uint8_t ESP32Synth::getOutput8Bit(uint8_t voice) { 
-    if (voice >= MAX_VOICES) return 0; return (uint8_t)(((voices[voice].currEnvVal >> 20) * voices[voice].vol) >> 8); 
+    if (voice >= MAX_VOICES) return 0; 
+    return (uint8_t)(((voices[voice].currEnvVal >> 20) * voices[voice].vol) >> 8); 
 }
 
 uint32_t ESP32Synth::getVolumeRaw(uint8_t voice) { 
-    if (voice >= MAX_VOICES) return 0; return (uint32_t)voices[voice].vol;
+    if (voice >= MAX_VOICES) return 0; 
+    return (uint32_t)voices[voice].vol;
 }
 
 uint32_t ESP32Synth::getEnvRaw(uint8_t voice) { 
-    if (voice >= MAX_VOICES) return 0; return voices[voice].currEnvVal; 
+    if (voice >= MAX_VOICES) return 0; 
+    return voices[voice].currEnvVal; 
 }
 
 uint32_t ESP32Synth::getOutputRaw(uint8_t voice) { 
-    if (voice >= MAX_VOICES) return 0; return (voices[voice].currEnvVal >> 8) * voices[voice].vol; 
+    if (voice >= MAX_VOICES) return 0; 
+    return (voices[voice].currEnvVal >> 8) * voices[voice].vol; 
 }
 
 void ESP32Synth::detachArpeggio(uint8_t voice) {

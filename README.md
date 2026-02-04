@@ -1,906 +1,655 @@
-# ESP32Synth v2.2.0 — Guia Completo
+# ESP32Synth v2.3.0 — Professional Audio Synthesis Library
 
-![Version](https://img.shields.io/badge/version-2.2.0-green.svg) ![Platform](https://img.shields.io/badge/platform-ESP32-orange.svg) ![License](https://img.shields.io/badge/license-MIT-blue.svg)
+![Version](https://img.shields.io/badge/version-2.3.0-green.svg) ![Platform](https://img.shields.io/badge/platform-ESP32-orange.svg) ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 
-**[Português]** Biblioteca de síntese de áudio profissional e de alto desempenho para ESP32. Suporta até 80 vozes polifônicas, Wavetables, Sampler com Loops, ADSR, e Efeitos em tempo real.
+**[English]** A high-performance, polyphonic audio synthesis library for the ESP32. It is engineered for professional applications and hobbyist projects that require low-latency, high-polyphony audio synthesis with a rich and flexible feature set.
 
-**[English]** Professional, high-performance audio synthesis library for the ESP32. Supports up to 80 polyphonic voices, Wavetables, a Sampler with Loops, ADSR, and real-time Effects.
-
----
-
-# 🇧🇷 Documentação Completa (Português)
-
-## Índice
-1.  **Visão Geral**
-    *   Filosofia da Biblioteca
-    *   Recursos Principais
-2.  **Instalação**
-3.  **Arquitetura e Conceitos Fundamentais**
-    *   O Pipeline de Áudio (Task e DMA)
-    *   Vozes e Polifonia
-    *   Aritmética de Ponto Fixo (Por que não `float`?)
-    *   A Taxa de Controle (`controlRate`)
-4.  **Guia Detalhado da API**
-    *   Inicialização e Saída de Áudio
-    *   Controle de Notas (O Ciclo de Vida de uma Voz)
-    *   Módulo de Osciladores
-    *   Módulo de Envelopes (ADSR)
-    *   Módulo de Sampler
-    *   Módulo de Instrumentos (Estilo Tracker)
-    *   Módulo de Efeitos e Modulação
-5.  **Gerenciamento de Vozes para Polifonia**
-6.  **Performance e Otimização**
-7.  **Exemplos Práticos**
-    *   Exemplo 1: Sintetizador Polifônico com Alocador de Voz
-    *   Exemplo 2: Toccando um Sample de Bateria
-    *   Exemplo 3: Criando um Instrumento Customizado
-8.  **Solução de Problemas**
+**[Português]** Uma biblioteca de síntese de áudio polifônica de alta performance para o ESP32. Foi projetada para aplicações profissionais e projetos que exigem baixa latência, alta polifonia e um conjunto de recursos rico e flexível.
 
 ---
 
-## 1. Visão Geral
+# 🇺🇸 English Documentation
 
-O **ESP32Synth** transforma o ESP32 em um sintetizador polifônico de nível profissional. Diferente de bibliotecas simples de "tone", esta engine processa áudio em tempo real com mixagem de até **80 vozes**, envelopes ADSR completos, e reprodução de samples PCM com alta precisão.
-
-### Filosofia da Biblioteca
-O ESP32Synth foi projetado com três objetivos principais:
-1.  **Performance Extrema:** Todo o caminho crítico de áudio é executado a partir da IRAM usando aritmética de ponto fixo, minimizando a latência e o jitter para permitir uma polifonia massiva sem sobrecarregar a CPU.
-2.  **Controle de Baixo Nível:** A biblioteca fornece controle direto sobre cada voz, permitindo que o desenvolvedor implemente qualquer lógica de gerenciamento de notas, desde um simples sintetizador monofônico até um complexo MPE (MIDI Polyphonic Expression).
-3.  **Flexibilidade:** Com suporte a múltiplos tipos de osciladores, samples, wavetables e instrumentos, a biblioteca serve como uma base poderosa para criar uma vasta gama de sons.
-
-### Recursos Principais
-*   **Polifonia Massiva:** Até 80 vozes simultâneas com mixagem dinâmica.
-*   **Saída de Áudio:** Suporte nativo a I2S (DAC externo, 8/16/32-bit), PDM (Delta-Sigma), e DAC interno do ESP32.
-*   **Osciladores Versáteis:** Senoidal, Triangular, Dente de Serra, Quadrada (PWM variável), Ruído e Wavetables customizáveis.
-*   **Sampler Engine Avançado:** Reprodução de samples PCM com suporte a Loops (Forward, PingPong, Reverse) e Zonas de Mapeamento (Multisample).
-*   **Efeitos em Tempo Real:** Vibrato, Tremolo, e Pitch Slide (Glissando/Portamento).
-*   **Arpeggiator Integrado:** Sequenciador de notas por voz com suporte a acordes e padrões.
-*   **Alta Performance:** Otimizado para IRAM, utilizando aritmética de ponto fixo para evitar latência de FPU.
-*   **Motor de Instrumentos:** Suporte para instrumentos complexos no estilo "Tracker", que automatizam a modulação de volume e a troca de formas de onda.
-
----
-
-## 2. Instalação
-1.  Baixe o repositório ou a release mais recente.
-2.  Na IDE do Arduino, vá em `Sketch` > `Include Library` > `Add .ZIP Library...` e selecione o arquivo que você baixou.
-3.  Ou, descompacte o ZIP e mova a pasta `ESP32Synth` para o seu diretório de bibliotecas do Arduino (`Documentos/Arduino/libraries/`).
-4.  Reinicie a IDE do Arduino.
-
-**Dependências:**
-*   **Hardware:** Qualquer placa ESP32, ESP32-C6, ESP32-S3 ou ESP32-C3.
-*   **Core:** `esp32` by Espressif Systems (v3.0.0+ recomendado).
+## Table of Contents
+1.  [**Overview & Key Features**](#1-overview--key-features)
+2.  [**Hardware Requirements (Crucial!)**](#2-hardware-requirements-crucial)
+3.  [**How It Works: Internal Architecture**](#3-how-it-works-internal-architecture)
+    *   [The Dual-Core Design](#the-dual-core-design)
+    *   [The Non-Blocking Audio Pipeline](#the-non-blocking-audio-pipeline)
+    *   [Control Rate vs. Audio Rate](#control-rate-vs-audio-rate)
+    *   [Fixed-Point Math & IRAM Optimization](#fixed-point-math--iram-optimization)
+4.  [**Installation**](#4-installation)
+5.  [**API Guide**](#5-api-guide)
+    *   [Initialization: `begin()`](#initialization-begin)
+    *   [Note Control: `noteOn()`, `noteOff()`, `setFrequency()`](#note-control-noteon-noteoff-setfrequency)
+    *   [Oscillators: `setWave()`, `setPulseWidth()`](#oscillators-setwave-setpulsewidth)
+    *   [Wavetables: `setWavetable()`, `registerWavetable()`](#wavetables-setwavetable-registerwavetable)
+    *   [Envelopes (ADSR): `setEnv()`](#envelopes-adsr-setenv)
+    *   [Sampler Engine: `registerSample()`, `Instrument_Sample`](#sampler-engine-registersample-instrument_sample)
+    *   [Tracker-Style Instruments: `Instrument`, `detachInstrumentAndSetWave()`](#tracker-style-instruments-instrument-detachinstrumentandsetwave)
+    *   [Modulation & Effects: `setVibrato()`, `setTremolo()`, `slideTo()`, `setArpeggio()`](#modulation--effects)
+    *   [Getters & Status: `isVoiceActive()`, `getOutput8Bit()`](#getters--status)
+    *   [Utilities: `ESP32SynthNotes.h`](#utilities-esp32synthnotesh)
+6.  [**Voice Management for Polyphony**](#6-voice-management-for-polyphony)
+7.  [**Included Tools**](#7-included-tools)
+8.  [**Troubleshooting**](#8-troubleshooting)
 
 ---
 
-## 3. Arquitetura e Conceitos Fundamentais
+## 1. Overview & Key Features
 
-### O Pipeline de Áudio (Task e DMA)
-O ESP32Synth opera de forma **não-bloqueante**. Ao chamar `synth.begin()`, uma tarefa de alta prioridade (`audioTask`) é criada e fixada no Core 1 do ESP32 (se disponível).
+**ESP32Synth** transforms an ESP32 board into a powerful and versatile polyphonic synthesizer. It was built from the ground up for performance, providing low-level control and enabling everything from simple tone generators to complex, evolving, multi-sampled instruments.
 
-1.  **`audioTask`:** Este é o coração da engine. Ele executa um loop infinito que renderiza pequenos blocos de áudio.
-2.  **Buffer de Mixagem:** Dentro do loop, todas as 80 vozes ativas são processadas e somadas (mixadas) em um buffer temporário.
-3.  **Transferência DMA:** Esse buffer de áudio é então enviado para o periférico I2S do ESP32. O DMA (Direct Memory Access) cuida da transferência para os pinos de saída sem precisar da intervenção da CPU.
-
-Isso garante que, uma vez iniciado, o áudio é gerado continuamente em background, e seu `loop()` principal fica livre para cuidar de lógica de controle, como ler botões, MIDI ou atualizar um display.
-
-### Vozes e Polifonia
-A biblioteca gerencia um array de 80 `Voice` structs. Uma "voz" é uma cadeia de sinal completa: um oscilador, um envelope, LFOs, etc.
-
-**Importante:** O ESP32Synth **não** possui um alocador de vozes automático. Você tem controle total sobre qual voz usar. Isso é uma decisão de design para dar máxima flexibilidade. Você é responsável por decidir qual voz tocará qual nota. Veja a seção **Gerenciamento de Vozes para Polifonia** para um exemplo de como implementar isso.
-
-### Aritmética de Ponto Fixo (Por que não `float`?)
-Operações de ponto flutuante (`float`, `double`) no ESP32 podem ser lentas e introduzir latência, especialmente quando a FPU (Floating-Point Unit) está ocupada. Para garantir a performance em tempo real, o ESP32Synth usa **aritmética de ponto fixo**.
-
-*   **Frequência:** Em vez de `440.0`, usamos `44000` (CentiHz). Isso permite representar frações de Hertz com precisão de dois decimais usando apenas inteiros.
-*   **Fase do Oscilador:** A fase de cada oscilador é um inteiro de 32 bits (`uint32_t`) que representa um ciclo de 0 a 360 graus. A cada amostra de áudio, um "incremento de fase" é adicionado. Esse incremento é calculado a partir da frequência da nota, garantindo uma afinação perfeita.
-*   **Envelopes:** Os níveis de envelope também são inteiros de 32 bits, permitindo uma resolução muito alta para fades suaves sem "degraus" audíveis.
-
-### A Taxa de Controle (`controlRate`)
-Enquanto o áudio é renderizado na frequência de amostragem (ex: 48000Hz), os parâmetros de controle como envelopes e LFOs não precisam ser atualizados com tanta frequência. A `controlRate` (padrão 100Hz) define quantas vezes por segundo esses parâmetros são recalculados.
-
-*   **Vantagem:** Reduz drasticamente a carga na CPU. Em vez de calcular 48000 vezes por segundo o novo nível do envelope, calculamos apenas 100 vezes. A transição entre esses pontos é interpolada linearmente.
-*   **Customização:** Você pode mudar essa taxa com `synth.setControlRateHz()`. Uma taxa maior (ex: 200Hz) resulta em LFOs e envelopes mais suaves, ao custo de mais CPU. Uma taxa menor economiza CPU, mas pode tornar modulações rápidas menos precisas.
+*   **Massive Polyphony:** A high-performance mixing engine handles up to **80 simultaneous voices**.
+*   **Flexible Audio Output:** Native support for the **internal DAC** (ESP32 classic only), external **I2S DACs** (with 8, 16, and 32-bit depth), and **PDM** digital audio output.
+*   **Rich Oscillators:** Core waveforms include Sine, Triangle, Sawtooth, Pulse (with variable width), and Noise.
+*   **Wavetable Synthesis:** Use custom wavetables for unique, complex timbres. The engine supports both direct assignment and a memory-efficient registry system for tracker instruments.
+*   **Advanced Sampler Engine:** Play PCM audio samples with features like multi-sampling (keyboard zones), pitch shifting, and various loop modes (forward, reverse, ping-pong).
+*   **ADSR Envelopes:** A per-voice ADSR (Attack, Decay, Sustain, Release) envelope generator to shape the volume of each note.
+*   **Tracker-Style Instruments:** A powerful feature to create intricate, evolving sounds by sequencing different waveforms and volume levels for a note's attack, sustain, and release phases.
+*   **Modulation & Effects:** Per-voice Vibrato (pitch LFO), Tremolo (amplitude LFO), Portamento/Slide, and a flexible Arpeggiator.
 
 ---
 
-## 4. Guia Detalhado da API
+## 2. Hardware Requirements (Crucial!)
 
-### Inicialização e Saída de Áudio
-A função `begin()` prepara o hardware. Use o `overload` que melhor se adapta ao seu projeto.
+This library was engineered to extract maximum performance from specific ESP32 hardware. Failure to meet these requirements will result in incorrect behavior, audio glitches, or crashes.
 
-*   `synth.begin(DAC_PIN);`
-    *   **Uso:** DAC interno do ESP32 (pino 25 ou 26).
-    *   **Qualidade:** A mais baixa, boa para bipes e sons simples sem hardware externo.
-    *   **Conexão:** Conecte um fone de ouvido ou amplificador diretamente ao pino DAC e ao GND.
+*   **CPU: Dual-Core ESP32 Required**
+    *   The library's core architecture dedicates an entire CPU core to the real-time audio synthesis task (`audioTask`). This design is fundamental to its glitch-free, non-blocking operation.
+    *   **Supported:** **ESP32** (classic) and **ESP32-S3**. Both are dual-core and fully supported for I2S and PDM output.
+    *   **Unsupported:** Single-core chips like **ESP32-S2** and **ESP32-C3** are **NOT SUPPORTED**.
+    *   **Note on Internal DAC:** The low-fi internal DAC output is **only available on the classic ESP32**, not on the ESP32-S3.
 
-*   `synth.begin(BCK_PIN, WS_PIN, DATA_PIN);`
-    *   **Uso:** DACs I2S externos (ex: PCM5102A, MAX98357A). Padrão de 16-bit.
-    *   **Qualidade:** Excelente. O padrão para projetos de áudio de alta fidelidade.
-    *   **Conexão:** Conecte os pinos BCK, WS (LRCK) e DATA (DIN) do DAC aos pinos correspondentes do ESP32.
+*   **CPU Frequency: 240 MHz Recommended**
+    *   **Supported:** The library is tested and performs correctly on ESP32s running at **240 MHz**.
+    *   **Unsupported:** Chips running at lower frequencies (e.g., 160 MHz) have **not been tested and are expected to fail**. The real-time audio rendering is CPU-intensive, and a 240 MHz clock speed is required to process the maximum number of voices without missing deadlines, which would cause audible clicks and distortion.
 
-*   `synth.begin(BCK_PIN, WS_PIN, DATA_PIN, I2S_32BIT);`
-    *   **Uso:** DACs I2S de alta resolução que suportam áudio de 32-bit.
-    *   **Qualidade:** Profissional. O áudio é enviado nos 16 bits mais significativos de uma palavra de 32 bits.
+---
 
-*   `synth.begin(DATA_PIN, SMODE_PDM, -1, -1);`
-    *   **Uso:** Saída PDM (Pulse-Density Modulation) em um único pino digital.
-    *   **Qualidade:** Razoável, mas requer um filtro RC (resistor e capacitor) no pino de saída para converter o sinal digital em analógico.
+## 3. How It Works: Internal Architecture
 
-### Controle de Notas (O Ciclo de Vida de uma Voz)
-O controle de uma voz é baseado no conceito de "gate" (portão), similar a sintetizadores analógicos.
+Understanding the library's design is key to using it effectively.
 
-1.  `noteOn(voice, freq, vol)`: Abre o "gate". Isso dispara o envelope, que entra na fase de **Attack**. O som começa a subir de volume. Após o ataque, ele passa para o **Decay** até atingir o nível de **Sustain**.
-2.  A nota permanece no nível de Sustain enquanto o gate estiver aberto. Você pode alterar a frequência com `setFrequency()` ou o volume com `setVolume()` nesse período.
-3.  `noteOff(voice)`: Fecha o "gate". Isso dispara a fase de **Release** do envelope. O som não para abruptamente, mas decai suavemente até o silêncio, conforme o tempo de release definido. A voz só se torna totalmente inativa (`vo.active = false`) após o término da fase de release.
+### The Dual-Core Design
+The ESP32's dual-core architecture is the foundation of the synthesizer.
+*   **Core 1 (The "Real-Time" Core):** The high-priority `audioTask` is pinned to Core 1. By default, your `setup()` and `loop()` code also run on this core. The audio task's high priority ensures it always runs on time, preempting the `loop()` to prevent any audio glitches. This core handles all time-critical operations.
+*   **Core 0 (The "Application" Core):** This core is typically free to run less time-sensitive tasks, most notably the WiFi and Bluetooth stacks. This separation is critical: heavy network activity on Core 0 will not interfere with the audio generation happening on Core 1.
 
-### Módulo de Osciladores
+### The Non-Blocking Audio Pipeline
+The entire process is non-blocking and managed by DMA.
 
-#### `void setWave(uint8_t voice, WaveType type)`
-Define a forma de onda do oscilador.
-*   `WAVE_SINE`: Onda senoidal pura, som suave. Gerada por uma tabela (LUT) para performance.
-*   `WAVE_TRIANGLE`: Onda triangular. Som similar ao seno mas com mais harmônicos.
-*   `WAVE_SAW`: Dente de serra. Som brilhante e rico, clássico de sintetizadores.
-*   `WAVE_PULSE`: Onda quadrada. Perfeita para sons de chiptune e baixos. Use `setPulseWidth()` para mudar o timbre.
-*   `WAVE_NOISE`: Ruído branco. Essencial para percussão e efeitos.
-*   `WAVE_WAVETABLE`: Usa uma tabela de onda customizada (veja abaixo).
-*   `WAVE_SAMPLE`: Usa o motor de sampler (veja abaixo).
+1.  **`audioTask` Loop:** The task on Core 1 enters an infinite loop.
+2.  **`render()` Call:** In each iteration, the loop calls the main `render()` function, requesting a small block of audio samples (e.g., 512 samples).
+3.  **Voice Mixing:** The `render()` function iterates through all 80 `Voice` structs. For each active voice, it calculates the next block of samples based on its current frequency, waveform, envelope, and modulators. All active voices are summed into a single **mix buffer**.
+4.  **DMA Transfer:** The final mix buffer is handed to the **I2S peripheral** (or DAC driver). A **DMA (Direct Memory Access)** controller then automatically transfers the audio data from the buffer to the physical output pins, sample by sample, without any further CPU involvement.
+5.  **Continuous Cycle:** While the DMA is busy sending audio, the `audioTask` is already ahead, working on rendering the *next* block of audio. This producer-consumer model ensures the DMA never runs out of data to send.
 
-#### `void setPulseWidth(uint8_t voice, uint8_t width)`
-Controla a largura de pulso da `WAVE_PULSE`.
-*   `width`: Um valor de 0 a 255. `128` (padrão) gera uma onda quadrada perfeita (50% de duty cycle). Valores diferentes criam ondas retangulares, alterando drasticamente o timbre.
+### Control Rate vs. Audio Rate
+Updating every parameter at the audio sample rate (e.g., 48,000 Hz) would be incredibly inefficient. The library separates these updates:
 
-#### Wavetables (`WAVE_WAVETABLE`)
-Wavetables permitem criar timbres complexos. Uma wavetable é simplesmente um array que armazena um único ciclo de uma forma de onda.
+*   **Audio Rate (e.g., 48,000 Hz):** The core oscillator phase and sample-level mixing happen at the full sample rate inside specialized `renderBlock` functions.
+*   **Control Rate (default 100 Hz):** Slower-moving parameters are updated in the `processControl()` function. This includes **LFOs (Vibrato/Tremolo), ADSR envelopes, Arpeggios, and Instrument sequences**. This function runs only 100 times per second by default. The audio rendering functions then interpolate the values between these control points.
+    *   You can adjust this with `setControlRateHz()`. A higher rate means smoother modulation at the cost of higher CPU usage.
 
-1.  **Crie sua Wavetable:**
-Pode ser um array de `int16_t` ou `uint8_t`. O tamanho pode ser qualquer um, mas potências de 2 são eficientes.
+### Fixed-Point Math & IRAM Optimization
+*   **Fixed-Point Arithmetic:** Instead of using slow floating-point numbers (`float`), the entire real-time signal path uses **32-bit fixed-point integers**. For example, frequency is handled in "CentiHz" and phase is managed with a 32-bit accumulator. This avoids the overhead and potential non-determinism of the FPU, which is critical for real-time safety.
+*   **`IRAM_ATTR`:** All time-critical functions (`render`, `processControl`, and the various `renderBlock` DSP routines) are marked with `IRAM_ATTR`. This forces the compiler to place them in the ESP32's fast **Internal RAM (IRAM)** instead of slower external Flash memory. This completely eliminates latency from flash cache misses, a common source of audio glitches.
+
+---
+
+## 4. Installation
+
+**1. Using the Arduino IDE Library Manager (Recommended)**
+1.  In the Arduino IDE, navigate to `Sketch` -> `Include Library` -> `Manage Libraries...`.
+2.  Search for `ESP32Synth`.
+3.  Click the "Install" button.
+
+**2. Manual Installation (.zip)**
+1.  Download the repository as a `.zip` file from the GitHub page.
+2.  In the Arduino IDE, navigate to `Sketch` -> `Include Library` -> `Add .ZIP Library...` and select the downloaded file.
+3.  Restart the Arduino IDE.
+
+**Dependencies:**
+*   **ESP32 Board Core:** Requires version **3.0.0 or newer** of the `esp32` by Espressif Systems board core. Older versions are not supported.
+
+---
+
+## 5. API Guide
+
+### Initialization: `begin()`
+This function configures the hardware and starts the audio engine. Use the overload that matches your hardware.
+
+*   `bool begin(int dacPin);`
+    *   **Use Case:** For the **internal DAC** on the classic ESP32 (pin 25 or 26).
+    *   **Quality:** Low-fi, but requires no external components. Good for simple beeps and testing.
+
+*   `bool begin(int bckPin, int wsPin, int dataPin);`
+    *   **Use Case:** For external **I2S DACs** like the PCM5102A or MAX98357A. Defaults to 16-bit audio.
+    *   **Quality:** High-fidelity. The standard for most audio projects.
+
+*   `bool begin(int bckPin, int wsPin, int dataPin, I2S_Depth i2sDepth);`
+    *   **Use Case:** For high-resolution I2S DACs. `i2sDepth` can be `I2S_8BIT`, `I2S_16BIT`, or `I2S_32BIT`.
+    *   **Quality:** `I2S_32BIT` provides the highest resolution output format.
+
+*   `bool begin(int dataPin, SynthOutputMode mode, int clkPin, int wsPin, I2S_Depth i2sDepth);`
+    *   The main, fully-featured initialization function. This is used for all **I2S** and **PDM** (`SMODE_PDM`) outputs.
+
+### Note Control: `noteOn()`, `noteOff()`
+This is the primary way to play and stop sounds. The system uses a "gate" model, just like analog synthesizers.
+
+*   `void noteOn(uint8_t voice, uint32_t freqCentiHz, uint8_t volume);`
+    *   Triggers a note on a specific `voice` (0-79). This "opens the gate" and starts the **Attack** phase of the ADSR envelope.
+    *   `freqCentiHz`: The frequency in hundredths of a Hertz (e.g., `44000` for 440.00 Hz). The `ESP32SynthNotes.h` file provides pre-defined constants like `c4`.
+    *   `volume`: The note's velocity or base volume (0-255).
+
+*   `void noteOff(uint8_t voice);`
+    *   "Closes the gate" for the specified voice. This **does not stop the sound immediately**. It triggers the **Release** phase of the ADSR envelope, causing the note to fade out smoothly. The voice becomes inactive only after the release phase is complete.
+
+*   `void setFrequency(uint8_t voice, uint32_t freqCentiHz);`
+    *   Changes the frequency of an already-playing voice.
+
+*   `void setVolume(uint8_t voice, uint8_t volume);`
+    *   Changes the base volume of an already-playing voice.
+
+### Oscillators: `setWave()`, `setPulseWidth()`
+
+*   `void setWave(uint8_t voice, WaveType type);`
+    *   Sets the fundamental waveform for a voice's oscillator.
+    *   `WaveType`: `WAVE_SINE`, `WAVE_TRIANGLE`, `WAVE_SAW`, `WAVE_PULSE`, `WAVE_NOISE`, `WAVE_WAVETABLE`, `WAVE_SAMPLE`.
+
+*   `void setPulseWidth(uint8_t voice, uint8_t width);`
+    *   For `WAVE_PULSE` only. Controls the duty cycle of the pulse wave.
+    *   `width`: 0-255. A value of `128` is a 50% duty cycle (a perfect square wave). Changing this value alters the harmonic content, a technique known as Pulse Width Modulation (PWM).
+
+### Wavetables: `setWavetable()`, `registerWavetable()`
+Wavetables are arrays containing a single cycle of a custom waveform.
+
+*   `void setWavetable(uint8_t voice, const void* data, uint32_t size, BitDepth depth);`
+    *   Assigns a wavetable directly to a single voice.
+    *   `data`: Pointer to the array of sample data.
+    *   `size`: The number of samples in the array.
+    *   `depth`: The bit depth of the data (`BITS_8` or `BITS_16`).
+
+*   `void registerWavetable(uint16_t id, const void* data, uint32_t size, BitDepth depth);`
+    *   Registers a wavetable in a global lookup table with a unique `id` (0-999). This is the required method for using wavetables with **Tracker-Style Instruments**. It is highly memory-efficient as the wavetable is stored only once and referenced by its ID.
+
+### Envelopes (ADSR): `setEnv()`
+
+*   `void setEnv(uint8_t voice, uint16_t a, uint16_t d, uint8_t s, uint16_t r);`
+    *   Defines the volume contour for a voice.
+    *   `a` (Attack): Time in milliseconds for the volume to go from 0 to max.
+    *   `d` (Decay): Time in ms for the volume to fall from max to the sustain level.
+    *   `s` (Sustain): The volume level (0-255) held as long as the note is on.
+    *   `r` (Release): Time in ms for the volume to fall from the sustain level to 0 after `noteOff()` is called.
+
+### Sampler Engine: `registerSample()`, `Instrument_Sample`
+The sampler can play back pre-recorded PCM audio.
+
+**Workflow:**
+1.  **Convert Audio:** Use the `WavToEsp32SynthConverter.py` script in the `tools` folder to convert a `.wav` file into a `.h` header file.
+2.  **Register Sample:**
+    `void registerSample(uint16_t id, const int16_t* data, uint32_t length, uint32_t sampleRate, uint32_t rootFreqCentiHz);`
+    *   In your `setup()`, call this to load the sample data from the header file into the synth's registry.
+    *   `id`: A unique ID (0-99) for this sample.
+    *   `rootFreqCentiHz`: The original pitch of the sample (e.g., `c4`). This is crucial for correct pitch shifting.
+3.  **Define Zones:**
+    An `Instrument_Sample` uses an array of `SampleZone` structs to map frequency ranges to specific samples. This allows for creating multi-sampled instruments (e.g., a different piano sample for every octave).
     ```cpp
-    // Uma wavetable simples com 4 passos para um som "quadrado-suave"
-    const int16_t myWave[] = {32767, 32767, -32768, -32768};
+    // This zone maps all frequencies to sample ID 0.
+    const SampleZone singleZone[] = {{ .lowFreq = 0, .highFreq = 1300000, .sampleId = 0 }};
     ```
-
-2.  **Registre na Biblioteca:**
-Dê um ID único (0-999) para sua wavetable.
+4.  **Create Instrument:**
     ```cpp
-    // Registra a wavetable com ID 0
-    synth.registerWavetable(0, myWave, 4, BITS_16); 
-    ```
-
-3.  **Use em uma Voz:**
-    ```cpp
-    // Atribui a wavetable à voz 5
-    synth.setWave(5, WAVE_WAVETABLE);
-    // Diz qual wavetable usar (pelo ID)
-    synth.setWavetable(5, myWave, 4, BITS_16);
-
-    synth.noteOn(5, NOTE_C4, 255);
-    ```
-
-### Módulo de Envelopes (ADSR)
-
-#### `void setEnv(uint8_t voice, uint16_t a, uint16_t d, uint8_t s, uint16_t r)`
-Modela a amplitude (volume) de uma nota ao longo do tempo.
-*   `a` (Attack): Tempo em `ms` para o som ir do silêncio ao volume máximo. (Ex: `50`)
-*   `d` (Decay): Tempo em `ms` para o som decair do volume máximo até o nível de sustain. (Ex: `100`)
-*   `s` (Sustain): Nível de volume (0-255) que a nota mantém após o decay. (Ex: `200`)
-*   `r` (Release): Tempo em `ms` para o som decair do nível de sustain até o silêncio após `noteOff()` ser chamada. (Ex: `500`)
-
-**Exemplo de uso:**
-*   **Som de Piano:** Ataque rápido, decay longo, sustain baixo, release médio. `setEnv(v, 5, 800, 50, 300);`
-*   **Som de Pad/String:** Ataque lento, release lento. `setEnv(v, 400, 200, 220, 600);`
-*   **Som de Percussão:** Sem sustain. `setEnv(v, 5, 200, 0, 50);`
-
-### Módulo de Sampler
-Permite tocar amostras de áudio pré-gravadas.
-
-1.  **Converta e Inclua o Sample:**
-    Use o script Python `tools/Samples/WavToEsp32SynthConverter.py` para converter um arquivo `.wav` em um header `.h`.
-    ```bash
-    python WavToEsp32SynthConverter.py meu_kick.wav KickSample
-    ```
-    Isso gerará `KickSample.h`, que você deve incluir no seu projeto (`#include "KickSample.h"`).
-
-2.  **Registre o Sample:**
-    No `setup()`, registre os dados do sample na biblioteca.
-    ```cpp
-    // ID 1, dados do header, tamanho, sample rate original, frequência raiz
-    synth.registerSample(1, KickSample_data, KickSample_len, KickSample_rate, NOTE_C4);
-    ```
-
-3.  **Crie um Instrumento de Sample:**
-    O sampler funciona através de `Instrument_Sample`. Você precisa definir pelo menos uma zona (`SampleZone`).
-    ```cpp
-    // Esta zona mapeia todas as notas para o nosso sample de Kick (ID 1)
-    const SampleZone kickZone[] = {
-      {0, 12700, 1, 0} // De freq 0 a 12700 (MIDI 0-127), use o sample ID 1
-    };
-
-    // Cria o instrumento
-    Instrument_Sample kickInstrument = {
-      .zones = kickZone,
+    Instrument_Sample mySampler = {
+      .zones = singleZone,
       .numZones = 1,
-      .loopMode = LOOP_OFF // Bateria não precisa de loop
+      .loopMode = LOOP_FORWARD, // LOOP_OFF, LOOP_PINGPONG, LOOP_REVERSE
+      .loopStart = 1000,
+      .loopEnd = 5000
     };
     ```
+5.  **Assign and Play:**
+    `void setInstrument(uint8_t voice, Instrument_Sample* inst);`
+    *   Use this function to attach the sampler instrument to a voice, then use `noteOn()` to play it. The frequency passed to `noteOn()` will determine the playback pitch.
 
-4.  **Atribua e Toque:**
-    ```cpp
-    // Atribui o instrumento à voz 0
-    synth.setInstrument(0, &kickInstrument);
-    
-    // Toca a nota. A frequência aqui (NOTE_C4) será usada para o pitch.
-    // Se a nota for diferente da frequência raiz do sample, o pitch será ajustado.
-    synth.noteOn(0, NOTE_C4, 255);
-    ```
+### Tracker-Style Instruments: `Instrument`
+This advanced feature allows a single note to trigger a sequence of different timbres and volumes. This is perfect for creating percussive hits, laser zaps, or evolving pads.
 
-### Módulo de Instrumentos (Estilo Tracker)
-Este é um recurso avançado que permite criar sons que mudam de timbre e volume ao longo do tempo, como nos trackers de música antigos (FastTracker, ProTracker).
+The `Instrument` struct contains pointers to arrays that define the sequences for the attack and release phases.
 
-A struct `Instrument` define "passos" de uma sequência para o ataque e para o release.
 ```cpp
-struct Instrument {
-    const uint8_t* seqVolumes;    // Array com os volumes de cada passo do ataque
-    const int16_t* seqWaves;      // Array com as formas de onda de cada passo
-    uint8_t        seqLen;        // Número de passos na sequência de ataque
-    uint16_t       seqSpeedMs;    // Duração de cada passo em ms
+// Example: A kick drum sound
+// Attack: Starts with a noisy "click", then a quick sine wave pitch drop.
+const int16_t kick_attack_waves[] = { W_NOISE, W_SINE };
+const uint8_t kick_attack_vols[]  = { 255, 127 };
 
-    uint8_t        susVol;        // Volume durante a fase de sustain
-    int16_t        susWave;       // Forma de onda durante o sustain
+Instrument kickInstrument = {
+  .seqVolumes = kick_attack_vols,
+  .seqWaves = kick_attack_waves,
+  .seqLen = 2,
+  .seqSpeedMs = 20, // Each step is 20ms
 
-    // ... campos similares para a sequência de Release ...
+  .susVol = 0,         // No sound during sustain
+  .susWave = W_SINE,
+
+  .relLen = 0 // No release phase
 };
 ```
-**Como usar:**
-1.  **Defina os Arrays da Sequência:**
-    ```cpp
-    // Sequência de ataque: começa com ruído, depois muda para pulso
-    const int16_t attack_waves[] = {W_NOISE, W_PULSE, W_PULSE};
-    const uint8_t attack_vols[] = {255, 200, 150};
+To use it, assign it with `setInstrument(voice, &kickInstrument)` and trigger it with `noteOn()`.
 
-    // Sequência de release: um fade out simples com onda senoidal
-    const int16_t release_waves[] = {W_SINE};
-    const uint8_t release_vols[] = {0};
+*   `void detachInstrumentAndSetWave(uint8_t voice, WaveType type);`
+    *   A utility function to remove any assigned Instrument (Tracker or Sampler) from a voice and set it back to a basic waveform. This is essential for safely re-using voices in a polyphonic setup.
+
+### Modulation & Effects
+
+*   `void setVibrato(uint8_t voice, uint32_t rateCentiHz, uint32_t depthCentiHz);`
+    *   Adds a pitch LFO (vibrato). `depthCentiHz` controls the amount of pitch deviation.
+
+*   `void setTremolo(uint8_t voice, uint32_t rateCentiHz, uint16_t depth);`
+    *   Adds an amplitude LFO (tremolo). `depth` is the intensity from 0-255.
+
+*   `void slideTo(uint8_t voice, uint32_t endFreqCentiHz, uint32_t durationMs);`
+    *   Slides the pitch of a voice from its current frequency to a target frequency over a set duration.
+
+*   `void setArpeggio(uint8_t voice, uint16_t durationMs, Args... freqs);`
+    *   A template function to create a sequence of notes. When you call `noteOn()` on this voice, it will automatically cycle through the `freqs` provided, with each note lasting `durationMs`.
+    ```cpp
+    // Create a C-minor arpeggio
+    synth.setArpeggio(0, 150, c4, ds4, g4, c5);
+    synth.noteOn(0, c4, 255); // Trigger the arpeggio
     ```
 
-2.  **Defina o Instrumento:**
-    ```cpp
-    Instrument myLead = {
-      .seqVolumes = attack_vols,
-      .seqWaves = attack_waves,
-      .seqLen = 3,
-      .seqSpeedMs = 30, // Cada passo dura 30ms
+### Getters & Status
 
-      .susVol = 180,
-      .susWave = W_SAW, // No sustain, vira uma onda dente de serra
+*   `bool isVoiceActive(uint8_t voice);`
+    *   Returns `true` if the voice is currently playing (i.e., not in the `ENV_IDLE` state). Useful for finding a free voice.
 
-      .relVolumes = release_vols,
-      .relWaves = release_waves,
-      .relLen = 1,
-      .relSpeedMs = 500 // Release dura 500ms
-    };
-    ```
+*   `uint8_t getOutput8Bit(uint8_t voice);`
+    *   Returns the current final output level of a voice (0-255), after volume and envelope have been applied. Useful for "voice stealing" logic or creating visualizations.
 
-3.  **Atribua e Toque:**
-    ```cpp
-    synth.setInstrument(2, &myLead);
-    synth.noteOn(2, NOTE_A4, 255); // O volume do noteOn é ignorado
-    ```
-    Quando a nota tocar, ela passará pelos 3 passos da sequência de ataque, depois ficará em `W_SAW` no sustain, e ao chamar `noteOff()`, ela passará pela sequência de release.
-
-### Módulo de Efeitos e Modulação
-
-*   `setVibrato(voice, rate, depth)`: Adiciona um LFO de seno à frequência.
-    *   `rate`: Velocidade do vibrato em CentiHz. `1000` (10Hz) é um bom valor.
-    *   `depth`: Intensidade do vibrato em CentiHz. `5000` (50Hz) causa uma variação de +/- 50Hz.
-
-*   `setTremolo(voice, rate, depth)`: Adiciona um LFO de seno ao volume.
-    *   `rate`: Velocidade em CentiHz.
-    *   `depth`: Intensidade (0-255).
-
-*   `slideTo(voice, endFreq, durationMs)`: Inicia um portamento da frequência atual da voz até `endFreq`, com duração de `durationMs`.
-
-*   `setArpeggio(voice, durationMs, ...)`: Transforma uma única nota `noteOn` em um arpejo.
-    ```cpp
-    // Cria um arpejo de acorde de Dó maior na voz 1
-    // A cada 100ms, a nota muda: C4 -> E4 -> G4 -> C5 -> repete
-    synth.setArpeggio(1, 100, NOTE_C4, NOTE_E4, NOTE_G4, NOTE_C5);
-    synth.setWave(1, WAVE_PULSE);
-    synth.noteOn(1, NOTE_C4, 255); // A frequência do noteOn serve como base, mas é sobrescrita pelo arpejador
-    ```
+### Utilities: `ESP32SynthNotes.h`
+The library includes `ESP32SynthNotes.h`, which provides:
+*   Pre-defined constants for note frequencies in CentiHz (e.g., `c4`, `fs5`, `a4`).
+*   An inline helper function `midiToFreq(uint8_t note)` to convert a standard MIDI note number (0-127) to the corresponding frequency in CentiHz.
 
 ---
 
-## 5. Gerenciamento de Vozes para Polifonia
-Para tocar múltiplas notas, você precisa de uma função que encontre uma voz livre.
+## 6. Voice Management for Polyphony
 
-Aqui está um exemplo de um alocador simples que encontra a primeira voz inativa ou, se todas estiverem ocupadas, a que está com o volume mais baixo (provavelmente em fase de release).
+The library gives you full control over the 80 voices but does **not** automatically allocate them. You must implement your own logic to find a free voice to play a new note. A common strategy is "voice stealing."
+
 ```cpp
 int findFreeVoice() {
-  uint32_t lowestVol = 0xFFFFFFFF;
-  int quietestVoice = 0;
-
-  // 1. Procura por uma voz completamente inativa
+  // 1. Find the first completely inactive voice.
   for (int i = 0; i < MAX_VOICES; i++) {
     if (!synth.isVoiceActive(i)) {
       return i;
     }
-    // Enquanto isso, encontra a voz mais silenciosa
-    uint32_t vol = synth.getOutputRaw(i);
-    if (vol < lowestVol) {
-      lowestVol = vol;
-      quietestVoice = i;
-    }
   }
 
-  // 2. Se não achou, "rouba" a voz mais silenciosa
-  return quietestVoice;
-}
-
-void playNote(uint32_t freq, uint8_t vol) {
-  int voice = findFreeVoice();
-  synth.noteOn(voice, freq, vol);
-}
-```
-
----
-
-## 6. Performance e Otimização
-
-*   **Uso de CPU:** A carga da CPU é diretamente proporcional ao número de vozes ativas e à `controlRate`. O ESP32Synth é muito eficiente, mas em projetos complexos, monitore o uso da CPU. Se a Task de áudio não tiver tempo suficiente, você ouvirá falhas (glitches).
-*   **Memória (RAM):** O maior consumidor de RAM são os samples e wavetables. Armazene-os como `const` para que fiquem na memória Flash (`PROGMEM`) em vez de serem copiados para a RAM na inicialização.
-*   **IRAM:** O código crítico da biblioteca já está marcado com `IRAM_ATTR`. Isso garante que ele seja executado da RAM interna de alta velocidade, evitando atrasos de cache da Flash.
-
----
-
-## 7. Exemplos Práticos
-
-<details><summary>Exemplo 1: Sintetizador Polifônico com Alocador de Voz</summary>
-
-```cpp
-#include <ESP32Synth.h>
-
-ESP32Synth synth;
-
-// Array para guardar o estado de 4 "teclas" 
-bool key_is_pressed[4] = {false};
-int key_voices[4] = {-1, -1, -1, -1};
-const uint32_t freqs[] = {NOTE_C4, NOTE_E4, NOTE_G4, NOTE_C5};
-
-// Alocador simples
-int findFreeVoice() {
-  for (int i = 0; i < MAX_VOICES; i++) {
-    if (!synth.isVoiceActive(i)) return i;
-  }
-  return 0; // Rouba a voz 0 se nenhuma estiver livre
-}
-
-void setup() {
-  Serial.begin(115200);
-  synth.begin(22, 25, 26); // DAC I2S Externo (BCK, WS, DATA)
-
-  for(int i=0; i<MAX_VOICES; i++){
-    synth.setWave(i, WAVE_SAW);
-    synth.setEnv(i, 10, 200, 180, 400);
-  }
-}
-
-void loop() {
-  // Simula apertar e soltar 4 teclas em sequência
-  for (int i = 0; i < 4; i++) {
-    if (!key_is_pressed[i]) {
-      Serial.printf("Key %d ON\n", i);
-      key_voices[i] = findFreeVoice();
-      synth.noteOn(key_voices[i], freqs[i], 255);
-      key_is_pressed[i] = true;
-    }
-    delay(500);
-  }
-
-  delay(1000);
-
-  for (int i = 0; i < 4; i++) {
-    if (key_is_pressed[i]) {
-      Serial.printf("Key %d OFF\n", i);
-      synth.noteOff(key_voices[i]);
-      key_is_pressed[i] = false;
-    }
-    delay(500);
-  }
-  delay(2000);
-}
-```
-</details>
-
-<details><summary>Exemplo 2: Toccando um Sample de Bateria</summary>
-
-```cpp
-// 1. Crie o arquivo "KickSample.h" com a ferramenta de conversão.
-// python WavToEsp32SynthConverter.py kick.wav KickSample
-
-#include <ESP32Synth.h>
-#include "KickSample.h" // Arquivo gerado
-
-ESP32Synth synth;
-
-// Definição do instrumento de sample
-const SampleZone kickZone[] = {{0, 12700, 0, 0}}; // Mapeia todas as notas para o sample ID 0
-Instrument_Sample kickInstrument = {
-  .zones = kickZone,
-  .numZones = 1,
-  .loopMode = LOOP_OFF
-};
-
-void setup() {
-  synth.begin(25); // DAC Interno
-
-  // Registra o sample com ID 0
-  synth.registerSample(0, KickSample_data, KickSample_len, KickSample_rate, NOTE_C4);
-
-  // Atribui o instrumento à voz 0
-  synth.setInstrument(0, &kickInstrument);
-}
-
-void loop() {
-  synth.noteOn(0, NOTE_C4, 255);
-  delay(500);
-}
-```
-</details>
-
----
-
-## 8. Solução de Problemas
-*   **Ruído/Estalos:**
-    *   **I2S:** Verifique se os cabos são curtos e se o GND está bem conectado.
-    *   **PDM:** Certifique-se de que o pino de saída tem um filtro RC adequado (ex: Resistor 1k + Capacitor 10nF a 100nF) para suavizar o sinal.
-    *   **Alimentação:** Use uma fonte de alimentação limpa de 3.3V. Ruído na alimentação pode vazar para o áudio.
-*   **Watchdog Reset:** Isso geralmente acontece se o `loop()` ou algum callback de interrupção bloquear por muito tempo. O `audioTask` do ESP32Synth tem alta prioridade, mas se a CPU 0 estiver travada, pode causar resets. Evite `delay()` longos e use `vTaskDelay()` em projetos FreeRTOS.
-*   **Volume Baixo:** A saída do ESP32 (DAC, I2S, PDM) é em nível de linha. Ela não tem potência para acionar alto-falantes diretamente. Use um amplificador (ex: PAM8403, TDA2030) entre a saída do synth e o alto-falante.
-
----
-<br>
-# 🇺🇸 Complete Documentation (English)
-## Table of Contents
-1.  **Overview**
-    *   Library Philosophy
-    *   Key Features
-2.  **Installation**
-3.  **Architecture and Core Concepts**
-    *   The Audio Pipeline (Task and DMA)
-    *   Voices and Polyphony
-    *   Fixed-Point Arithmetic (Why not `float`?)
-    *   The Control Rate (`controlRate`)
-4.  **Detailed API Guide**
-    *   Initialization and Audio Output
-    *   Note Control (The Lifecycle of a Voice)
-    *   Oscillator Module
-    *   Envelope Module (ADSR)
-    *   Sampler Module
-    *   Instrument Module (Tracker-Style)
-    *   Effects and Modulation Module
-5.  **Voice Management for Polyphony**
-6.  **Performance and Optimization**
-7.  **Practical Examples**
-    *   Example 1: Polyphonic Synthesizer with Voice Allocator
-    *   Example 2: Playing a Drum Sample
-    *   Example 3: Creating a Custom Instrument
-8.  **Troubleshooting**
-
----
-
-# 🇺🇸 Complete Documentation (English)
-
-## 1. Overview
-
-**ESP32Synth** turns your ESP32 into a professional-grade polyphonic synthesizer. Unlike simple "tone" libraries, this engine processes audio in real-time with mixing for up to **80 voices**, full ADSR envelopes, and high-precision PCM sample playback.
-
-### Library Philosophy
-ESP32Synth was designed with three main goals:
-1.  **Extreme Performance:** The entire critical audio path runs from IRAM using fixed-point arithmetic, minimizing latency and jitter to allow for massive polyphony without overloading the CPU.
-2.  **Low-Level Control:** The library provides direct control over each voice, allowing the developer to implement any note management logic, from a simple monophonic synth to a complex MPE (MIDI Polyphonic Expression) instrument.
-3.  **Flexibility:** With support for multiple oscillator types, samples, wavetables, and instruments, the library serves as a powerful foundation for creating a vast range of sounds.
-
-### Key Features
-*   **Massive Polyphony:** Up to 80 simultaneous voices with dynamic mixing.
-*   **Audio Output:** Native support for I2S (external DAC, 8/16/32-bit), PDM (Delta-Sigma), and the ESP32's internal DAC.
-*   **Versatile Oscillators:** Sine, Triangle, Sawtooth, Pulse (variable PWM), Noise, and custom Wavetables.
-*   **Advanced Sampler Engine:** PCM sample playback with support for Loops (Forward, PingPong, Reverse) and Key-mapping Zones (Multisample).
-*   **Real-Time Effects:** Vibrato, Tremolo, and Pitch Slide (Glissando/Portamento).
-*   **Integrated Arpeggiator:** A per-voice note sequencer with support for chords and patterns.
-*   **High Performance:** Optimized for IRAM, using fixed-point arithmetic to avoid FPU latency.
-*   **Instrument Engine:** Support for complex "Tracker-style" instruments that automate volume modulation and waveform switching.
-
----
-
-## 2. Installation
-1.  Download the repository or the latest release.
-2.  In the Arduino IDE, go to `Sketch` > `Include Library` > `Add .ZIP Library...` and select the file you downloaded.
-3.  Alternatively, unzip the file and move the `ESP32Synth` folder to your Arduino libraries directory (`Documents/Arduino/libraries/`).
-4.  Restart the Arduino IDE.
-
-**Dependencies:**
-*   **Hardware:** Any ESP32, ESP32-P4, ESP32-S3, or ESP32-C3 board.
-*   **Core:** `esp32` by Espressif Systems (v3.0.0+ recommended).
-
----
-
-## 3. Architecture and Core Concepts
-
-### The Audio Pipeline (Task and DMA)
-ESP32Synth operates in a **non-blocking** manner. When you call `synth.begin()`, a high-priority task (`audioTask`) is created and pinned to Core 1 of the ESP32 (if available).
-
-1.  **`audioTask`:** This is the heart of the engine. It runs an infinite loop that renders small blocks of audio.
-2.  **Mixing Buffer:** Inside the loop, all 80 active voices are processed and summed (mixed) into a temporary buffer.
-3.  **DMA Transfer:** This audio buffer is then sent to the ESP32's I2S peripheral. The DMA (Direct Memory Access) handles the transfer to the output pins without requiring CPU intervention.
-
-This ensures that once started, audio is generated continuously in the background, leaving your main `loop()` free to handle control logic, such as reading buttons, MIDI, or updating a display.
-
-### Voices and Polyphony
-The library manages an array of 80 `Voice` structs. A "voice" is a complete signal chain: an oscillator, an envelope, LFOs, etc.
-
-**Important:** ESP32Synth **does not** have an automatic voice allocator. You have full control over which voice to use. This is a design decision to provide maximum flexibility. You are responsible for deciding which voice plays which note. See the **Voice Management for Polyphony** section for an example of how to implement this.
-
-### Fixed-Point Arithmetic (Why not `float`?)
-Floating-point operations (`float`, `double`) on the ESP32 can be slow and introduce latency, especially when the FPU (Floating-Point Unit) is busy. To ensure real-time performance, ESP32Synth uses **fixed-point arithmetic**.
-
-*   **Frequency:** Instead of `440.0`, we use `44000` (CentiHz). This allows representing fractions of a Hertz with two decimal places of precision using only integers.
-*   **Oscillator Phase:** The phase of each oscillator is a 32-bit unsigned integer (`uint32_t`) that represents a cycle from 0 to 360 degrees. With each audio sample, a "phase increment" is added. This increment is calculated from the note's frequency, ensuring perfect tuning.
-*   **Envelopes:** Envelope levels are also 32-bit integers, allowing for very high resolution for smooth fades without audible "steps".
-
-### The Control Rate (`controlRate`)
-While audio is rendered at the sample rate (e.g., 48000Hz), control parameters like envelopes and LFOs do not need to be updated as frequently. The `controlRate` (default 100Hz) defines how many times per second these parameters are recalculated.
-
-*   **Advantage:** Drastically reduces the CPU load. Instead of calculating the new envelope level 48,000 times per second, we only calculate it 100 times. The transition between these points is linearly interpolated.
-*   **Customization:** You can change this rate with `synth.setControlRateHz()`. A higher rate (e.g., 200Hz) results in smoother LFOs and envelopes at the cost of more CPU. A lower rate saves CPU but can make fast modulations less precise.
-
----
-
-## 4. Detailed API Guide
-
-### Initialization and Audio Output
-The `begin()` function prepares the hardware. Use the overload that best suits your project.
-
-*   `synth.begin(DAC_PIN);`
-    *   **Usage:** ESP32's internal DAC (pin 25 or 26).
-    *   **Quality:** The lowest, good for beeps and simple sounds without external hardware.
-    *   **Connection:** Connect a headphone or amplifier directly to the DAC pin and GND.
-
-*   `synth.begin(BCK_PIN, WS_PIN, DATA_PIN);`
-    *   **Usage:** External I2S DACs (e.g., PCM5102A, MAX98357A). Defaults to 16-bit.
-    *   **Quality:** Excellent. The standard for high-fidelity audio projects.
-    *   **Connection:** Connect the BCK, WS (LRCK), and DATA (DIN) pins of the DAC to the corresponding pins on the ESP32.
-
-*   `synth.begin(BCK_PIN, WS_PIN, DATA_PIN, I2S_32BIT);`
-    *   **Usage:** High-resolution I2S DACs that support 32-bit audio.
-    *   **Quality:** Professional. The audio is sent in the 16 most significant bits of a 32-bit word.
-
-*   `synth.begin(DATA_PIN, SMODE_PDM, -1, -1);`
-    *   **Usage:** PDM (Pulse-Density Modulation) output on a single digital pin.
-    *   **Quality:** Reasonable, but requires an RC (resistor and capacitor) filter on the output pin to smooth the signal.
-
-### Note Control (The Lifecycle of a Voice)
-Voice control is based on the "gate" concept, similar to analog synthesizers.
-
-1.  `noteOn(voice, freq, vol)`: Opens the "gate". This triggers the envelope, which enters the **Attack** phase. The sound begins to rise in volume. After the attack, it moves to the **Decay** phase until it reaches the **Sustain** level.
-2.  The note remains at the Sustain level as long as the gate is open. You can change the frequency with `setFrequency()` or the volume with `setVolume()` during this time.
-3.  `noteOff(voice)`: Closes the "gate". This triggers the **Release** phase of the envelope. The sound does not stop abruptly but fades out smoothly according to the defined release time. The voice only becomes fully inactive (`vo.active = false`) after the release phase is complete.
-
-### Oscillator Module
-
-#### `void setWave(uint8_t voice, WaveType type)`
-Sets the oscillator's waveform.
-*   `WAVE_SINE`: Pure sine wave, smooth sound. Generated from a Look-Up Table (LUT) for performance.
-*   `WAVE_TRIANGLE`: Triangle wave, similar to sine but with more harmonics.
-*   `WAVE_SAW`: Sawtooth wave, bright and rich, a classic synth sound.
-*   `WAVE_PULSE`: Pulse wave. Perfect for chiptune sounds and basses. Use `setPulseWidth()` to change its timbre.
-*   `WAVE_NOISE`: White noise. Essential for percussion and effects.
-*   `WAVE_WAVETABLE`: Uses a custom wavetable (see below).
-*   `WAVE_SAMPLE`: Uses the sampler engine (see below).
-
-#### `void setPulseWidth(uint8_t voice, uint8_t width)`
-Controls the pulse width of the `WAVE_PULSE`.
-*   `width`: A value from 0 to 255. `128` (default) generates a perfect square wave (50% duty cycle). Different values create rectangular waves, drastically altering the timbre.
-
-#### Wavetables (`WAVE_WAVETABLE`)
-Wavetables allow you to create complex timbres. A wavetable is simply an array that stores a single cycle of a waveform.
-
-1.  **Create Your Wavetable:**
-It can be an array of `int16_t` or `uint8_t`. The size can be anything, but powers of 2 are efficient.
-    ```cpp
-    // A simple 4-step wavetable for a "soft-square" sound
-    const int16_t myWave[] = {32767, 32767, -32768, -32768};
-    ```
-
-2.  **Register it with the Library:**
-Give your wavetable a unique ID (0-999).
-    ```cpp
-    // Register the wavetable with ID 0
-    synth.registerWavetable(0, myWave, 4, BITS_16); 
-    ```
-
-3.  **Use it in a Voice:**
-    ```cpp
-    // Assign the wavetable to voice 5
-    synth.setWave(5, WAVE_WAVETABLE);
-    // Tell it which wavetable to use (by ID)
-    synth.setWavetable(5, myWave, 4, BITS_16);
-
-    synth.noteOn(5, NOTE_C4, 255);
-    ```
-
-### Envelope Module (ADSR)
-
-#### `void setEnv(uint8_t voice, uint16_t a, uint16_t d, uint8_t s, uint16_t r)`
-Models the amplitude (volume) of a note over time.
-*   `a` (Attack): Time in `ms` for the sound to go from silence to full volume. (e.g., `50`)
-*   `d` (Decay): Time in `ms` for the sound to decay from full volume to the sustain level. (e.g., `100`)
-*   `s` (Sustain): Volume level (0-255) that the note holds after the decay. (e.g., `200`)
-*   `r` (Release): Time in `ms` for the sound to fade from the sustain level to silence after `noteOff()` is called. (e.g., `500`)
-
-**Usage Examples:**
-*   **Piano Sound:** Fast attack, long decay, low sustain, medium release. `setEnv(v, 5, 800, 50, 300);`
-*   **Pad/String Sound:** Slow attack, slow release. `setEnv(v, 400, 200, 220, 600);`
-*   **Percussive Sound:** No sustain. `setEnv(v, 5, 200, 0, 50);`
-
-### Sampler Module
-Allows you to play pre-recorded audio samples.
-
-1.  **Convert and Include the Sample:**
-Use the Python script `tools/Samples/WavToEsp32SynthConverter.py` to convert a `.wav` file into a `.h` header.
-    ```bash
-    python WavToEsp32SynthConverter.py kick.wav KickSample
-    ```
-    This will generate `KickSample.h`, which you should include in your project (`#include "KickSample.h"`).
-
-2.  **Register the Sample:**
-In `setup()`, register the sample data with the library.
-    ```cpp
-    // ID 1, data from header, length, original sample rate, root frequency
-    synth.registerSample(1, KickSample_data, KickSample_len, KickSample_rate, NOTE_C4);
-    ```
-
-3.  **Create a Sample Instrument:**
-The sampler works through `Instrument_Sample`. You need to define at least one zone (`SampleZone`).
-    ```cpp
-    // This zone maps all notes to our Kick sample (ID 1)
-    const SampleZone kickZone[] = {{0, 12700, 1, 0}}; // Maps all notes to sample ID 0
-    Instrument_Sample kickInstrument = {
-      .zones = kickZone,
-      .numZones = 1,
-      .loopMode = LOOP_OFF
-    };
-    ```
-
-4.  **Assign and Play:**
-    ```cpp
-    // Assign the instrument to voice 0
-    synth.setInstrument(0, &kickInstrument);
-    
-    // Play the note. The frequency here (NOTE_C4) will be used for pitching.
-    // If the note is different from the sample's root frequency, the pitch will be adjusted.
-    synth.noteOn(0, NOTE_C4, 255);
-    ```
-
-### Instrument Module (Tracker-Style)
-This is an advanced feature that lets you create sounds that change timbre and volume over time, like in old-school music trackers (FastTracker, ProTracker).
-
-The `Instrument` struct defines "steps" of a sequence for the attack and release phases.
-```cpp
-struct Instrument {
-    const uint8_t* seqVolumes;    // Array of volumes for each attack step
-    const int16_t* seqWaves;      // Array of waveforms for each step
-    uint8_t        seqLen;        // Number of steps in the attack sequence
-    uint16_t       seqSpeedMs;    // Duration of each step in ms
-
-    uint8_t        susVol;        // Volume during the sustain phase
-    int16_t        susWave;       // Waveform during sustain
-
-    // ... similar fields for the Release sequence ...
-};
-```
-**How to use:**
-1.  **Define the Sequence Arrays:**
-    ```cpp
-    // Attack sequence: starts with noise, then changes to a pulse wave
-    const int16_t attack_waves[] = {W_NOISE, W_PULSE, W_PULSE};
-    const uint8_t attack_vols[] = {255, 200, 150};
-
-    // Release sequence: a simple fade-out with a sine wave
-    const int16_t release_waves[] = {W_SINE};
-    const uint8_t release_vols[] = {0};
-    ```
-
-2.  **Define the Instrument:**
-    ```cpp
-    Instrument myLead = {
-      .seqVolumes = attack_vols,
-      .seqWaves = attack_waves,
-      .seqLen = 3,
-      .seqSpeedMs = 30, // Each step lasts 30ms
-
-      .susVol = 180,
-      .susWave = W_SAW, // Becomes a sawtooth wave during sustain
-
-      .relVolumes = release_vols,
-      .relWaves = release_waves,
-      .relLen = 1,
-      .relSpeedMs = 500 // Release lasts 500ms
-    };
-    ```
-
-3.  **Assign and Play:**
-    ```cpp
-    synth.setInstrument(2, &myLead);
-    synth.noteOn(2, NOTE_A4, 255); // The volume from noteOn is ignored
-    ```
-    When the note plays, it will go through the 3 steps of the attack sequence, then hold at `W_SAW` during sustain, and when `noteOff()` is called, it will go through the release sequence.
-
-### Effects and Modulation Module
-
-*   `setVibrato(voice, rate, depth)`: Adds a sine LFO to the frequency.
-    *   `rate`: Speed of the vibrato in CentiHz. `1000` (10Hz) is a good value.
-    *   `depth`: Intensity of the vibrato in CentiHz. `5000` (50Hz) causes a pitch variation of +/- 50Hz.
-
-*   `setTremolo(voice, rate, depth)`: Adds a sine LFO to the volume.
-    *   `rate`: Speed in CentiHz.
-    *   `depth`: Intensity (0-255).
-
-*   `slideTo(voice, endFreq, durationMs)`: Starts a portamento from the voice's current frequency to `endFreq`, with a duration of `durationMs`.
-
-*   `setArpeggio(voice, durationMs, ...)`: Turns a single `noteOn` into an arpeggio.
-    ```cpp
-    // Creates a C-major chord arpeggio on voice 1
-    // Every 100ms, the note changes: C4 -> E4 -> G4 -> C5 -> repeats
-    synth.setArpeggio(1, 100, NOTE_C4, NOTE_E4, NOTE_G4, NOTE_C5);
-    synth.setWave(1, WAVE_PULSE);
-    synth.noteOn(1, NOTE_C4, 255); // The noteOn frequency is used as a base but is overridden by the arpeggiator
-    ```
-
----
-
-## 5. Voice Management for Polyphony
-To play multiple notes, you need a function to find a free voice.
-
-Here is an example of a simple allocator that finds the first inactive voice, or if all are busy, the one with the lowest volume (likely in its release phase).
-```cpp
-int findFreeVoice() {
-  uint32_t lowestVol = 0xFFFFFFFF;
+  // 2. If all voices are active, find the quietest one to "steal".
+  // This is likely a voice in its release phase.
+  uint8_t lowestVol = 255;
   int quietestVoice = 0;
-
-  // 1. Look for a completely inactive voice
   for (int i = 0; i < MAX_VOICES; i++) {
-    if (!synth.isVoiceActive(i)) return i;
-    // Meanwhile, find the quietest voice
-    uint32_t vol = synth.getOutputRaw(i);
+    uint8_t vol = synth.getOutput8Bit(i);
     if (vol < lowestVol) {
       lowestVol = vol;
       quietestVoice = i;
     }
   }
-
-  // 2. If none found, "steal" the quietest voice
   return quietestVoice;
 }
-
-void playNote(uint32_t freq, uint8_t vol) {
-  int voice = findFreeVoice();
-  synth.noteOn(voice, freq, vol);
-}
 ```
 
 ---
 
-## 6. Performance and Optimization
+## 7. Included Tools
 
-*   **CPU Usage:** The CPU load is directly proportional to the number of active voices and the `controlRate`. ESP32Synth is very efficient, but in complex projects, monitor CPU usage. If the audio Task doesn't get enough time, you will hear glitches.
-*   **Memory (RAM):** The biggest consumers of RAM are samples and wavetables. Store them as `const` so they stay in Flash memory (`PROGMEM`) instead of being copied to RAM on startup.
-*   **IRAM:** The library's critical code is already marked with `IRAM_ATTR`. This ensures it runs from the high-speed internal RAM, avoiding delays from Flash cache misses.
+The `tools` directory contains helpful Python scripts:
 
----
-
-## 7. Practical Examples
-
-<details><summary>Example 1: Polyphonic Synthesizer with Voice Allocator</summary>
-
-```cpp
-#include <ESP32Synth.h>
-
-ESP32Synth synth;
-
-// Array to hold the state of 4 "keys" 
-bool key_is_pressed[4] = {false};
-int key_voices[4] = {-1, -1, -1, -1};
-const uint32_t freqs[] = {NOTE_C4, NOTE_E4, NOTE_G4, NOTE_C5};
-
-// Simple allocator
-int findFreeVoice() {
-  for (int i = 0; i < MAX_VOICES; i++) {
-    if (!synth.isVoiceActive(i)) return i;
-  }
-  return 0; // Steal voice 0 if none are free
-}
-
-void setup() {
-  Serial.begin(115200);
-  synth.begin(22, 25, 26); // External I2S DAC (BCK, WS, DATA)
-
-  for(int i=0; i<MAX_VOICES; i++){
-    synth.setWave(i, WAVE_SAW);
-    synth.setEnv(i, 10, 200, 180, 400);
-  }
-}
-
-void loop() {
-  // Simulate pressing and releasing 4 keys in sequence
-  for (int i = 0; i < 4; i++) {
-    if (!key_is_pressed[i]) {
-      Serial.printf("Key %d ON\n", i);
-      key_voices[i] = findFreeVoice();
-      synth.noteOn(key_voices[i], freqs[i], 255);
-      key_is_pressed[i] = true;
-    }
-    delay(500);
-  }
-
-  delay(1000);
-
-  for (int i = 0; i < 4; i++) {
-    if (key_is_pressed[i]) {
-      Serial.printf("Key %d OFF\n", i);
-      synth.noteOff(key_voices[i]);
-      key_is_pressed[i] = false;
-    }
-    delay(500);
-  }
-  delay(2000);
-}
-```
-</details>
-
-<details><summary>Example 2: Playing a Drum Sample</summary>
-
-```cpp
-// 1. Create the "KickSample.h" file using the conversion tool.
-// python WavToEsp32SynthConverter.py kick.wav KickSample
-
-#include <ESP32Synth.h>
-#include "KickSample.h" // Generated file
-
-ESP32Synth synth;
-
-// Definition of the sample instrument
-const SampleZone kickZone[] = {{0, 12700, 0, 0}}; // Maps all notes to sample ID 0
-Instrument_Sample kickInstrument = {
-  .zones = kickZone,
-  .numZones = 1,
-  .loopMode = LOOP_OFF
-};
-
-void setup() {
-  synth.begin(25); // Internal DAC
-
-  // Register the sample with ID 0
-  synth.registerSample(0, KickSample_data, KickSample_len, KickSample_rate, NOTE_C4);
-
-  // Assign the instrument to voice 0
-  synth.setInstrument(0, &kickInstrument);
-}
-
-void loop() {
-  synth.noteOn(0, NOTE_C4, 255);
-  delay(500);
-}
-```
-</details>
+*   `tools/Wavetables/WavetableMaker.py`: Generates wavetables from various sources.
+*   `tools/Samples/WavToEsp32SynthConverter.py`: Converts standard `.wav` files into `.h` header files compatible with the sampler engine.
 
 ---
 
 ## 8. Troubleshooting
-*   **Noise/Popping:**
-    *   **I2S:** Ensure your wires are short and that GND is well-connected.
-    *   **PDM:** Make sure the output pin has a proper RC filter (e.g., 1k Resistor + 10nF to 100nF Capacitor) to smooth the signal.
-    *   **Power:** Use a clean 3.3V power supply. Noise on the power rail can leak into the audio.
-*   **Watchdog Reset:** This usually happens if your `loop()` or an interrupt callback blocks for too long. ESP32Synth's `audioTask` has a high priority, but if CPU 0 is stuck, it can cause resets. Avoid long `delay()` calls and use `vTaskDelay()` in FreeRTOS projects.
-*   **Low Volume:** The ESP32's output (DAC, I2S, PDM) is at line level. It does not have the power to drive speakers directly. Use an amplifier (e.g., PAM8403, TDA2030) between the synth's output and the speaker.
+
+*   **Audio has clicks, pops, or distortion:**
+    1.  **Check Hardware Requirements:** Ensure you are using a supported dual-core, 240 MHz ESP32.
+    2.  **Power Supply:** Use a clean 3.3V power source. Noise on the power rail is a very common cause of bad audio.
+    3.  **I2S Wiring:** Keep I2S wires (BCK, WS, DATA) as short as possible and ensure a solid GND connection between the ESP32 and your DAC.
+    4.  **Amplifier:** The output of a DAC is line-level. **Do not connect it directly to a speaker.** You need an external amplifier.
+
+*   **ESP32 crashes or reboots (Watchdog Timer) and using `delay()`:**
+    *   Because the audio synthesis runs in a separate, high-priority task (`audioTask`) pinned to Core 1, using the standard Arduino `delay()` function in your `loop()` **will not cause audio glitches or stuttering**. The FreeRTOS scheduler will ensure the `audioTask` always gets CPU time.
+    *   You can use `delay()` without problems for simple applications. However, be aware that very long delays (many seconds) can still potentially trigger the ESP32's Task Watchdog Timer (TWDT), which can cause a reboot. For complex applications that need to remain responsive, it is still good practice to use non-blocking timers with `millis()`.
+
+*   **Compilation errors about `i2s` or `dac` functions:**
+    *   Your ESP32 board support package in the Arduino IDE is likely outdated. Update it via the Boards Manager.
+
+<br>
+<hr>
+<br>
+
+# 🇧🇷 Documentação em Português
+
+## Índice
+1.  [**Visão Geral e Recursos Principais**](#1-visão-geral-e-recursos-principais)
+2.  [**Requisitos de Hardware (Crucial!)**](#2-requisitos-de-hardware-crucial)
+3.  [**Como Funciona: Arquitetura Interna**](#3-como-funciona-arquitetura-interna)
+    *   [O Design Dual-Core](#o-design-dual-core-1)
+    *   [O Pipeline de Áudio Não-Bloqueante](#o-pipeline-de-áudio-não-bloqueante)
+    *   [Taxa de Controle vs. Taxa de Áudio](#taxa-de-controle-vs-taxa-de-áudio)
+    *   [Aritmética de Ponto Fixo e Otimização de IRAM](#aritmética-de-ponto-fixo-e-otimização-de-iram)
+4.  [**Instalação**](#4-instalação-1)
+5.  [**Guia da API**](#5-guia-da-api-1)
+    *   [Inicialização: `begin()`](#inicialização-begin-1)
+    *   [Controle de Notas: `noteOn()`, `noteOff()`, `setFrequency()`](#controle-de-notas-noteon-noteoff-setfrequency)
+    *   [Osciladores: `setWave()`, `setPulseWidth()`](#osciladores-setwave-setpulsewidth-1)
+    *   [Wavetables: `setWavetable()`, `registerWavetable()`](#wavetables-setwavetable-registerwavetable-1)
+    *   [Envelopes (ADSR): `setEnv()`](#envelopes-adsr-setenv-1)
+    *   [Motor de Sampler: `registerSample()`, `Instrument_Sample`](#motor-de-sampler-registersample-instrument_sample)
+    *   [Instrumentos Estilo Tracker: `Instrument`, `detachInstrumentAndSetWave()`](#instrumentos-estilo-tracker-instrument-detachinstrumentandsetwave-1)
+    *   [Modulação e Efeitos: `setVibrato()`, `setTremolo()`, `slideTo()`, `setArpeggio()`](#modulação-e-efeitos-1)
+    *   [Getters e Status: `isVoiceActive()`, `getOutput8Bit()`](#getters-e-status-1)
+    *   [Utilitários: `ESP32SynthNotes.h`](#utilitários-esp32synthnotesh-1)
+6.  [**Gerenciamento de Vozes para Polifonia**](#6-gerenciamento-de-vozes-para-polifonia-1)
+7.  [**Ferramentas Inclusas**](#7-ferramentas-inclusas-1)
+8.  [**Solução de Problemas**](#8-solução-de-problemas-1)
 
 ---
+
+## 1. Visão Geral e Recursos Principais
+
+O **ESP32Synth** transforma uma placa ESP32 em um sintetizador polifônico poderoso e versátil. Ele foi construído do zero para performance, fornecendo controle de baixo nível e permitindo desde simples geradores de tom até instrumentos complexos, multi-sampleados e em evolução.
+
+*   **Polifonia Massiva:** Um motor de mixagem de alta performance gerencia até **80 vozes simultâneas**.
+*   **Saída de Áudio Flexível:** Suporte nativo para o **DAC interno** (apenas ESP32 clássico), **DACs I2S** externos (com profundidade de 8, 16 e 32 bits) e saída de áudio digital **PDM**.
+*   **Osciladores Ricos:** Formas de onda principais incluem Senoidal, Triangular, Dente de Serra, Pulso (com largura variável) e Ruído.
+*   **Síntese Wavetable:** Use wavetables customizadas para timbres únicos e complexos. O motor suporta tanto atribuição direta quanto um sistema de registro eficiente em memória para instrumentos de tracker.
+*   **Motor de Sampler Avançado:** Reproduza amostras de áudio PCM com recursos como multi-sampling (zonas de teclado), pitch shifting e vários modos de loop (forward, reverse, ping-pong).
+*   **Envelopes ADSR:** Um gerador de envelope ADSR (Attack, Decay, Sustain, Release) por voz para modelar o volume de cada nota.
+*   **Instrumentos Estilo Tracker:** Um recurso poderoso para criar sons intrincados e evolutivos, sequenciando diferentes formas de onda e níveis de volume para as fases de ataque, sustentação e relaxamento de uma nota.
+*   **Modulação e Efeitos:** Vibrato (LFO de pitch), Tremolo (LFO de amplitude), Portamento/Slide e um Arpejador flexível por voz.
+
+---
+
+## 2. Requisitos de Hardware (Crucial!)
+
+Esta biblioteca foi projetada para extrair o máximo de performance de hardware ESP32 específico. O não cumprimento desses requisitos resultará em comportamento incorreto, falhas de áudio ou travamentos.
+
+*   **CPU: Requer ESP32 Dual-Core**
+    *   A arquitetura central da biblioteca dedica um núcleo de CPU inteiro à tarefa de síntese de áudio em tempo real (`audioTask`). Este design é fundamental para sua operação sem falhas e não-bloqueante.
+    *   **Suportado:** **ESP32** (clássico) e **ESP32-S3**. Ambos são dual-core e totalmente suportados para saída I2S e PDM.
+    *   **Não Suportado:** Chips single-core como **ESP32-S2** e **ESP32-C3** **NÃO SÃO SUPORTADOS**.
+    *   **Nota sobre o DAC Interno:** A saída de baixa fidelidade do DAC interno está **disponível apenas no ESP32 clássico**, não no ESP32-S3.
+
+*   **Frequência da CPU: 240 MHz Recomendado**
+    *   **Suportado:** A biblioteca é testada e funciona corretamente em ESP32s operando a **240 MHz**.
+    *   **Não Suportado:** Chips operando em frequências mais baixas (ex: 160 MHz) **não foram testados e a expectativa é que falhem**. A renderização de áudio em tempo real é intensiva em CPU, e uma velocidade de clock de 240 MHz é necessária para processar o número máximo de vozes sem perder prazos, o que causaria cliques e distorção audíveis.
+
+---
+
+## 3. Como Funciona: Arquitetura Interna
+
+Entender o design da biblioteca é fundamental para usá-la de forma eficaz.
+
+### O Design Dual-Core
+A arquitetura dual-core do ESP32 é a base do sintetizador.
+*   **Core 1 (O Núcleo de "Tempo Real"):** A tarefa de alta prioridade `audioTask` é fixada no Core 1. Por padrão, seu código `setup()` e `loop()` também roda neste núcleo. A alta prioridade da tarefa de áudio garante que ela sempre execute no tempo certo, tomando a frente do `loop()` para prevenir falhas no áudio. Este núcleo gerencia todas as operações críticas em tempo.
+*   **Core 0 (O Núcleo de "Aplicação"):** Este núcleo geralmente fica livre para executar tarefas menos sensíveis ao tempo, principalmente as pilhas de WiFi e Bluetooth. Essa separação é crítica: atividades de rede pesadas no Core 0 não interferirão na geração de áudio que acontece no Core 1.
+
+### O Pipeline de Áudio Não-Bloqueante
+Todo o processo é não-bloqueante e gerenciado por DMA.
+
+1.  **Loop da `audioTask`:** A tarefa no Core 1 entra em um loop infinito.
+2.  **Chamada de `render()`:** Em cada iteração, o loop chama a função principal `render()`, solicitando um pequeno bloco de amostras de áudio (ex: 512 amostras).
+3.  **Mixagem de Vozes:** A função `render()` itera por todas as 80 estruturas `Voice`. Para cada voz ativa, ela calcula o próximo bloco de amostras com base em sua frequência, forma de onda, envelope e moduladores atuais. Todas as vozes ativas são somadas em um único **buffer de mixagem**.
+4.  **Transferência DMA:** O buffer de mixagem final é entregue ao **periférico I2S** (ou driver DAC). Um controlador **DMA (Direct Memory Access)** então transfere automaticamente os dados de áudio do buffer para os pinos de saída físicos, amostra por amostra, sem qualquer envolvimento adicional da CPU.
+5.  **Ciclo Contínuo:** Enquanto o DMA está ocupado enviando o áudio, a `audioTask` já está à frente, trabalhando na renderização do *próximo* bloco de áudio. Este modelo produtor-consumidor garante que o DMA nunca fique sem dados para enviar.
+
+### Taxa de Controle vs. Taxa de Áudio
+Atualizar todos os parâmetros na taxa de amostragem de áudio (ex: 48.000 Hz) seria incrivelmente ineficiente. A biblioteca separa essas atualizações:
+
+*   **Taxa de Áudio (ex: 48.000 Hz):** A fase do oscilador principal e a mixagem em nível de amostra acontecem na taxa de amostragem completa dentro de funções `renderBlock` especializadas.
+*   **Taxa de Controle (padrão 100 Hz):** Parâmetros de movimento mais lento são atualizados na função `processControl()`. Isso inclui **LFOs (Vibrato/Tremolo), envelopes ADSR, Arpejos e sequências de Instrumentos**. Esta função roda apenas 100 vezes por segundo por padrão. As funções de renderização de áudio então interpolam os valores entre esses pontos de controle.
+    *   Você pode ajustar isso com `setControlRateHz()`. Uma taxa maior significa modulação mais suave ao custo de maior uso da CPU.
+
+### Aritmética de Ponto Fixo e Otimização de IRAM
+*   **Aritmética de Ponto Fixo:** Em vez de usar números de ponto flutuante lentos (`float`), todo o caminho do sinal em tempo real usa **inteiros de ponto fixo de 32 bits**. Por exemplo, a frequência é tratada em "CentiHz" e a fase é gerenciada com um acumulador de 32 bits. Isso evita a sobrecarga e a potencial não-determinismo da FPU, que é crítico para a segurança em tempo real.
+*   **`IRAM_ATTR`:** Todas as funções críticas em tempo (`render`, `processControl` e as várias rotinas DSP `renderBlock`) são marcadas com `IRAM_ATTR`. Isso força o compilador a colocá-las na rápida **RAM Interna (IRAM)** do ESP32, em vez da memória Flash externa mais lenta. Isso elimina completamente a latência de cache misses da flash, uma fonte comum de falhas de áudio.
+
+---
+
+## 4. Instalação
+
+**1. Usando o Gerenciador de Bibliotecas da IDE do Arduino (Recomendado)**
+1.  Na IDE do Arduino, navegue até `Sketch` -> `Incluir Biblioteca` -> `Gerenciar Bibliotecas...`.
+2.  Procure por `ESP32Synth`.
+3.  Clique no botão "Instalar".
+
+**2. Instalação Manual (.zip)**
+1.  Baixe o repositório como um arquivo `.zip` da página do GitHub.
+2.  Na IDE do Arduino, navegue para `Sketch` -> `Incluir Biblioteca` -> `Adicionar Biblioteca .ZIP...` e selecione o arquivo baixado.
+3.  Reinicie a IDE do Arduino.
+
+**Dependências:**
+*   **Core da Placa ESP32:** Requer a versão **3.0.0 ou mais recente** do core `esp32` da Espressif Systems. Versões mais antigas não são suportadas.
+
+---
+
+## 5. Guia da API
+
+### Inicialização: `begin()`
+Esta função configura o hardware e inicia o motor de áudio. Use a sobrecarga que corresponde ao seu hardware.
+
+*   `bool begin(int dacPin);`
+    *   **Caso de Uso:** Para o **DAC interno** no ESP32 clássico (pino 25 ou 26).
+    *   **Qualidade:** Baixa-fidelidade, mas não requer componentes externos. Bom para bipes simples e testes.
+
+*   `bool begin(int bckPin, int wsPin, int dataPin);`
+    *   **Caso de Uso:** Para **DACs I2S** externos como o PCM5102A ou MAX98357A. O padrão é áudio de 16 bits.
+    *   **Qualidade:** Alta-fidelidade. O padrão para a maioria dos projetos de áudio.
+
+*   `bool begin(int bckPin, int wsPin, int dataPin, I2S_Depth i2sDepth);`
+    *   **Caso de Uso:** Para DACs I2S de alta resolução. `i2sDepth` pode ser `I2S_8BIT`, `I2S_16BIT` ou `I2S_32BIT`.
+    *   **Qualidade:** `I2S_32BIT` fornece o formato de saída de maior resolução.
+
+*   `bool begin(int dataPin, SynthOutputMode mode, int clkPin, int wsPin, I2S_Depth i2sDepth);`
+    *   A função de inicialização principal e completa. É usada para todas as saídas **I2S** e **PDM** (`SMODE_PDM`).
+
+### Controle de Notas: `noteOn()`, `noteOff()`
+Esta é a maneira principal de tocar e parar sons. O sistema usa um modelo de "gate", assim como os sintetizadores analógicos.
+
+*   `void noteOn(uint8_t voice, uint32_t freqCentiHz, uint8_t volume);`
+    *   Dispara uma nota em uma `voice` específica (0-79). Isso "abre o gate" e inicia a fase de **Attack** do envelope ADSR.
+    *   `freqCentiHz`: A frequência em centésimos de Hertz (ex: `44000` para 440.00 Hz). O arquivo `ESP32SynthNotes.h` fornece constantes pré-definidas como `c4`.
+    *   `volume`: A velocidade ou volume base da nota (0-255).
+
+*   `void noteOff(uint8_t voice);`
+    *   "Fecha o gate" para a voz especificada. Isso **não para o som imediatamente**. Ele dispara a fase de **Release** do envelope ADSR, fazendo com que a nota desapareça suavemente. A voz só se torna inativa após a conclusão da fase de release.
+
+*   `void setFrequency(uint8_t voice, uint32_t freqCentiHz);`
+    *   Altera a frequência de uma voz que já está tocando.
+
+*   `void setVolume(uint8_t voice, uint8_t volume);`
+    *   Altera o volume base de uma voz que já está tocando.
+
+### Osciladores: `setWave()`, `setPulseWidth()`
+
+*   `void setWave(uint8_t voice, WaveType type);`
+    *   Define a forma de onda fundamental para o oscilador de uma voz.
+    *   `WaveType`: `WAVE_SINE`, `WAVE_TRIANGLE`, `WAVE_SAW`, `WAVE_PULSE`, `WAVE_NOISE`, `WAVE_WAVETABLE`, `WAVE_SAMPLE`.
+
+*   `void setPulseWidth(uint8_t voice, uint8_t width);`
+    *   Apenas para `WAVE_PULSE`. Controla o ciclo de trabalho da onda de pulso.
+    *   `width`: 0-255. Um valor de `128` é um ciclo de trabalho de 50% (uma onda quadrada perfeita). Alterar este valor modifica o conteúdo harmônico, uma técnica conhecida como Modulação por Largura de Pulso (PWM).
+
+### Wavetables: `setWavetable()`, `registerWavetable()`
+Wavetables são arrays contendo um único ciclo de uma forma de onda personalizada.
+
+*   `void setWavetable(uint8_t voice, const void* data, uint32_t size, BitDepth depth);`
+    *   Atribui uma wavetable diretamente a uma única voz.
+    *   `data`: Ponteiro para o array de dados da amostra.
+    *   `size`: O número de amostras no array.
+    *   `depth`: A profundidade de bits dos dados (`BITS_8` ou `BITS_16`).
+
+*   `void registerWavetable(uint16_t id, const void* data, uint32_t size, BitDepth depth);`
+    *   Registra uma wavetable em uma tabela de pesquisa global com um `id` único (0-999). Este é o método necessário para usar wavetables com **Instrumentos Estilo Tracker**. É altamente eficiente em memória, pois a wavetable é armazenada apenas uma vez e referenciada pelo seu ID.
+
+### Envelopes (ADSR): `setEnv()`
+
+*   `void setEnv(uint8_t voice, uint16_t a, uint16_t d, uint8_t s, uint16_t r);`
+    *   Define o contorno de volume para uma voz.
+    *   `a` (Attack): Tempo em milissegundos para o volume ir de 0 ao máximo.
+    *   `d` (Decay): Tempo em ms para o volume cair do máximo até o nível de sustain.
+    *   `s` (Sustain): O nível de volume (0-255) mantido enquanto a nota está ligada.
+    *   `r` (Release): Tempo em ms para o volume cair do nível de sustain para 0 após `noteOff()` ser chamado.
+
+### Motor de Sampler: `registerSample()`, `Instrument_Sample`
+O sampler pode reproduzir áudio PCM pré-gravado.
+
+**Fluxo de trabalho:**
+1.  **Converter Áudio:** Use o script `WavToEsp32SynthConverter.py` na pasta `tools` para converter um arquivo `.wav` em um arquivo de cabeçalho `.h`.
+2.  **Registrar Amostra:**
+    `void registerSample(uint16_t id, const int16_t* data, uint32_t length, uint32_t sampleRate, uint32_t rootFreqCentiHz);`
+    *   Em seu `setup()`, chame isso para carregar os dados da amostra do arquivo de cabeçalho no registro do sintetizador.
+    *   `id`: Um ID único (0-99) para esta amostra.
+    *   `rootFreqCentiHz`: O tom original da amostra (ex: `c4`). Isso é crucial para o pitch shifting correto.
+3.  **Definir Zonas:**
+    Um `Instrument_Sample` usa um array de `SampleZone` para mapear faixas de frequência para amostras específicas. Isso permite a criação de instrumentos multi-sampleados (ex: uma amostra de piano diferente para cada oitava).
+    ```cpp
+    // Esta zona mapeia todas as frequências para a amostra ID 0.
+    const SampleZone singleZone[] = {{ .lowFreq = 0, .highFreq = 1300000, .sampleId = 0 }};
+    ```
+4.  **Criar Instrumento:**
+    ```cpp
+    Instrument_Sample mySampler = {
+      .zones = singleZone,
+      .numZones = 1,
+      .loopMode = LOOP_FORWARD, // LOOP_OFF, LOOP_PINGPONG, LOOP_REVERSE
+      .loopStart = 1000,
+      .loopEnd = 5000
+    };
+    ```
+5.  **Atribuir e Tocar:**
+    `void setInstrument(uint8_t voice, Instrument_Sample* inst);`
+    *   Use esta função para anexar o instrumento sampler a uma voz, depois use `noteOn()` para tocá-lo. A frequência passada para `noteOn()` determinará o tom de reprodução.
+
+### Instrumentos Estilo Tracker: `Instrument`
+Este recurso avançado permite que uma única nota dispare uma sequência de diferentes timbres e volumes. É perfeito para criar batidas percussivas, sons de laser ou pads evolutivos.
+
+A estrutura `Instrument` contém ponteiros para arrays que definem as sequências para as fases de ataque e release.
+
+```cpp
+// Exemplo: Um som de bumbo
+// Ataque: Começa com um "clique" ruidoso, depois uma queda rápida de tom com uma onda senoidal.
+const int16_t kick_attack_waves[] = { W_NOISE, W_SINE };
+const uint8_t kick_attack_vols[]  = { 255, 127 };
+
+Instrument kickInstrument = {
+  .seqVolumes = kick_attack_vols,
+  .seqWaves = kick_attack_waves,
+  .seqLen = 2,
+  .seqSpeedMs = 20, // Cada passo dura 20ms
+
+  .susVol = 0,         // Sem som durante a sustentação
+  .susWave = W_SINE,
+
+  .relLen = 0 // Sem fase de release
+};
+```
+Para usar, atribua-o com `setInstrument(voice, &kickInstrument)` e dispare-o com `noteOn()`.
+
+*   `void detachInstrumentAndSetWave(uint8_t voice, WaveType type);`
+    *   Uma função utilitária para remover qualquer Instrumento (Tracker ou Sampler) de uma voz e redefini-la para uma forma de onda básica. Essencial para reutilizar vozes com segurança em um setup polifônico.
+
+### Modulação e Efeitos
+
+*   `void setVibrato(uint8_t voice, uint32_t rateCentiHz, uint32_t depthCentiHz);`
+    *   Adiciona um LFO de pitch (vibrato). `depthCentiHz` controla a quantidade de desvio de tom.
+
+*   `void setTremolo(uint8_t voice, uint32_t rateCentiHz, uint16_t depth);`
+    *   Adiciona um LFO de amplitude (tremolo). `depth` é a intensidade de 0-255.
+
+*   `void slideTo(uint8_t voice, uint32_t endFreqCentiHz, uint32_t durationMs);`
+    *   Desliza o tom de uma voz de sua frequência atual para uma frequência alvo ao longo de uma duração definida.
+
+*   `void setArpeggio(uint8_t voice, uint16_t durationMs, Args... freqs);`
+    *   Uma função de template para criar uma sequência de notas. Quando você chama `noteOn()` nesta voz, ela irá ciclar automaticamente através das `freqs` fornecidas, com cada nota durando `durationMs`.
+    ```cpp
+    // Cria um arpejo de Dó menor
+    synth.setArpeggio(0, 150, c4, ds4, g4, c5);
+    synth.noteOn(0, c4, 255); // Dispara o arpejo
+    ```
+
+### Getters e Status
+
+*   `bool isVoiceActive(uint8_t voice);`
+    *   Retorna `true` se a voz estiver tocando atualmente (ou seja, não no estado `ENV_IDLE`). Útil para encontrar uma voz livre.
+
+*   `uint8_t getOutput8Bit(uint8_t voice);`
+    *   Retorna o nível de saída final atual de uma voz (0-255), após a aplicação de volume e envelope. Útil para lógica de "roubo de voz" ou para criar visualizações.
+
+### Utilitários: `ESP32SynthNotes.h`
+A biblioteca inclui `ESP32SynthNotes.h`, que fornece:
+*   Constantes pré-definidas para frequências de notas em CentiHz (ex: `c4`, `fs5`, `a4`).
+*   Uma função de ajuda inline `midiToFreq(uint8_t note)` para converter um número de nota MIDI padrão (0-127) para a frequência correspondente em CentiHz.
+
+---
+
+## 6. Gerenciamento de Vozes para Polifonia
+
+A biblioteca lhe dá controle total sobre as 80 vozes, mas **não** as aloca automaticamente. Você deve implementar sua própria lógica para encontrar uma voz livre para tocar uma nova nota. Uma estratégia comum é o "roubo de voz".
+
+```cpp
+int findFreeVoice() {
+  // 1. Encontra a primeira voz completamente inativa.
+  for (int i = 0; i < MAX_VOICES; i++) {
+    if (!synth.isVoiceActive(i)) {
+      return i;
+    }
+  }
+
+  // 2. Se todas as vozes estiverem ativas, encontre a mais silenciosa para "roubar".
+  // Provavelmente será uma voz em sua fase de release.
+  uint8_t lowestVol = 255;
+  int quietestVoice = 0;
+  for (int i = 0; i < MAX_VOICES; i++) {
+    uint8_t vol = synth.getOutput8Bit(i);
+    if (vol < lowestVol) {
+      lowestVol = vol;
+      quietestVoice = i;
+    }
+  }
+  return quietestVoice;
+}
+```
+
+---
+
+## 7. Ferramentas Inclusas
+
+O diretório `tools` contém scripts Python úteis:
+
+*   `tools/Wavetables/WavetableMaker.py`: Gera wavetables a partir de várias fontes.
+*   `tools/Samples/WavToEsp32SynthConverter.py`: Converte arquivos `.wav` padrão em arquivos de cabeçalho `.h` compatíveis com o motor de sampler.
+
+---
+
+## 8. Solução de Problemas
+
+*   **Áudio tem cliques, estalos ou distorção:**
+    1.  **Verifique os Requisitos de Hardware:** Certifique-se de que está usando um ESP32 dual-core de 240 MHz suportado.
+    2.  **Fonte de Alimentação:** Use uma fonte de alimentação limpa de 3.3V. Ruído na linha de alimentação é uma causa muito comum de áudio ruim.
+    3.  **Fiação I2S:** Mantenha os fios I2S (BCK, WS, DATA) o mais curtos possível e garanta uma conexão GND sólida entre o ESP32 e seu DAC.
+    4.  **Amplificador:** A saída de um DAC é de nível de linha. **Não a conecte diretamente a um alto-falante.** Você precisa de um amplificador externo.
+
+*   **ESP32 trava ou reinicia (Watchdog Timer) e uso de `delay()`:**
+    *   Como a síntese de áudio roda em uma tarefa separada de alta prioridade (`audioTask`) fixada no Core 1, usar a função `delay()` padrão do Arduino no seu `loop()` **não causará falhas ou engasgos no áudio**. O escalonador do FreeRTOS garantirá que a `audioTask` sempre receba tempo de CPU.
+    *   Você pode usar `delay()` tranquilamente para aplicações simples. No entanto, saiba que delays muito longos (muitos segundos) ainda podem potencialmente disparar o Task Watchdog Timer (TWDT) do ESP32, o que pode causar uma reinicialização. Para aplicações complexas que precisam se manter responsivas, ainda é uma boa prática usar temporizadores não-bloqueantes com `millis()`.
+
+*   **Erros de compilação sobre funções `i2s` ou `dac`:**
+    *   O pacote de suporte à placa ESP32 na sua IDE do Arduino provavelmente está desatualizado. Atualize-o através do Gerenciador de Placas.

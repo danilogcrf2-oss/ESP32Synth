@@ -8,10 +8,54 @@ import pygame
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
     QPushButton, QLabel, QFileDialog, QComboBox, QSpinBox, 
-    QPlainTextEdit, QSplitter, QGroupBox, QStyle
+    QPlainTextEdit, QSplitter, QGroupBox, QStyle, QSizePolicy
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QRectF, QTimer
 from PyQt6.QtGui import QPainter, QColor, QPen, QBrush, QPalette, QFont
+
+# --- DICIONÁRIO DE TRADUÇÃO ---
+TRANSLATIONS = {
+    "pt": {
+        "window_title": "Conversor de Samples para ESP32Synth (v3.0)",
+        "grp_file": "Arquivo e Preview",
+        "btn_load": "Carregar WAV...",
+        "no_file": "Nenhum arquivo carregado.",
+        "btn_play": "Play Preview",
+        "btn_stop": "Stop",
+        "grp_loop": "Configuração de Loop",
+        "lbl_mode": "Modo de Loop:",
+        "lbl_start": "Início:",
+        "lbl_end": "Fim:",
+        "btn_convert": "CONVERTER / GERAR CÓDIGO",
+        "grp_data": "1. Array de Dados C++",
+        "grp_inst": "2. Configuração do Instrumento",
+        "dlg_title": "Abrir Arquivo de Áudio",
+        "file_info": "Arquivo: {0} | Taxa: {1}Hz | Samples: {2} | Duração: {3:.2f}s",
+        "loop_modes": ["LOOP_OFF (Nenhum)", "LOOP_FORWARD (->)", "LOOP_PINGPONG (<->)", "LOOP_REVERSE (<-)"],
+        "waveform_msg": "Carregue um arquivo WAV...",
+        "btn_lang": "🇺🇸 English"
+    },
+    "en": {
+        "window_title": "Sample Converter for ESP32Synth (v3.0)",
+        "grp_file": "File & Preview",
+        "btn_load": "Load WAV...",
+        "no_file": "No file loaded.",
+        "btn_play": "Play Preview",
+        "btn_stop": "Stop",
+        "grp_loop": "Loop Configuration",
+        "lbl_mode": "Loop Mode:",
+        "lbl_start": "Start:",
+        "lbl_end": "End:",
+        "btn_convert": "CONVERT / GENERATE CODE",
+        "grp_data": "1. C++ Data Array",
+        "grp_inst": "2. Instrument Configuration",
+        "dlg_title": "Open Audio File",
+        "file_info": "File: {0} | Rate: {1}Hz | Samples: {2} | Duration: {3:.2f}s",
+        "loop_modes": ["LOOP_OFF (None)", "LOOP_FORWARD (->)", "LOOP_PINGPONG (<->)", "LOOP_REVERSE (<-)"],
+        "waveform_msg": "Load a WAV file...",
+        "btn_lang": "🇧🇷 Português"
+    }
+}
 
 # --- WIDGET CUSTOMIZADO PARA DESENHAR A ONDA ---
 class WaveformWidget(QWidget):
@@ -32,9 +76,14 @@ class WaveformWidget(QWidget):
         self.loop_end = 0
         
         self.playback_cursor = -1 # Posição do cursor (-1 = invisível)
+        self.message = "Carregue um arquivo WAV..."
         
         self.dragging = None 
         self.last_mouse_x = 0
+
+    def setMessage(self, text):
+        self.message = text
+        self.update()
 
     def setData(self, audio_data):
         # Garante mono para visualização
@@ -89,7 +138,7 @@ class WaveformWidget(QWidget):
 
         if self.display_data is None:
             painter.setPen(QColor("#555555"))
-            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "Carregue um arquivo WAV...")
+            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self.message)
             return
 
         mid_y = self.height() / 2
@@ -192,7 +241,7 @@ class WaveformWidget(QWidget):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Conversor de Samples para ESP32Synth (v3.0)")
+        self.cur_lang = "pt"
         self.setMinimumSize(900, 750)
         
         self.filepath = ""
@@ -213,6 +262,7 @@ class MainWindow(QMainWindow):
 
         self.init_ui()
         self.apply_dark_theme() 
+        self.update_texts()
 
     def init_ui(self):
         main_layout = QVBoxLayout()
@@ -220,60 +270,72 @@ class MainWindow(QMainWindow):
         container.setLayout(main_layout)
         self.setCentralWidget(container)
 
-        # 1. Topo
-        top_panel = QGroupBox("Arquivo e Preview")
+        # 0. Botão de Idioma (Top Right)
+        top_bar = QHBoxLayout()
+        top_bar.addStretch()
+        self.btn_lang = QPushButton("🇺🇸 English")
+        self.btn_lang.setFixedWidth(120)
+        self.btn_lang.clicked.connect(self.toggle_language)
+        top_bar.addWidget(self.btn_lang)
+        main_layout.addLayout(top_bar)
+
+        # 1. Topo: Arquivo e Preview
+        self.group_file = QGroupBox("Arquivo e Preview")
         top_layout = QHBoxLayout()
         
-        btn_load = QPushButton("Carregar WAV...")
-        btn_load.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogOpenButton))
-        btn_load.clicked.connect(self.load_file)
+        self.btn_load = QPushButton("Carregar WAV...")
+        self.btn_load.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogOpenButton))
+        self.btn_load.clicked.connect(self.load_file)
         
         self.lbl_info = QLabel("Nenhum arquivo carregado.")
         self.lbl_info.setStyleSheet("font-weight: bold; color: #ccc;")
         
-        btn_play = QPushButton("Play Preview")
-        btn_play.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay))
-        btn_play.clicked.connect(self.play_audio)
+        self.btn_play = QPushButton("Play Preview")
+        self.btn_play.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay))
+        self.btn_play.clicked.connect(self.play_audio)
         
-        btn_stop = QPushButton("Stop")
-        btn_stop.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaStop))
-        btn_stop.clicked.connect(self.stop_audio)
+        self.btn_stop = QPushButton("Stop")
+        self.btn_stop.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaStop))
+        self.btn_stop.clicked.connect(self.stop_audio)
         
-        top_layout.addWidget(btn_load)
+        top_layout.addWidget(self.btn_load)
         top_layout.addWidget(self.lbl_info, 1) 
-        top_layout.addWidget(btn_play)
-        top_layout.addWidget(btn_stop)
-        top_panel.setLayout(top_layout)
-        main_layout.addWidget(top_panel)
+        top_layout.addWidget(self.btn_play)
+        top_layout.addWidget(self.btn_stop)
+        self.group_file.setLayout(top_layout)
+        main_layout.addWidget(self.group_file)
 
         # 2. Controles de Loop
-        loop_panel = QGroupBox("Configuração de Loop")
+        self.group_loop = QGroupBox("Configuração de Loop")
         loop_layout = QHBoxLayout()
         
-        loop_layout.addWidget(QLabel("Modo de Loop:"))
+        self.lbl_mode = QLabel("Modo de Loop:")
+        loop_layout.addWidget(self.lbl_mode)
         self.combo_mode = QComboBox()
-        self.combo_mode.addItems(["LOOP_OFF (None)", "LOOP_FORWARD (->)", "LOOP_PINGPONG (<->)", "LOOP_REVERSE (<-)"])
+        self.combo_mode.addItems(["LOOP_OFF", "LOOP_FORWARD", "LOOP_PINGPONG", "LOOP_REVERSE"])
         self.combo_mode.currentIndexChanged.connect(self.on_loop_mode_changed)
         loop_layout.addWidget(self.combo_mode)
         
         loop_layout.addSpacing(20)
         
-        loop_layout.addWidget(QLabel("Início:"))
+        self.lbl_start = QLabel("Início:")
+        loop_layout.addWidget(self.lbl_start)
         self.spin_start = QSpinBox()
         self.spin_start.setRange(0, 99999999)
         self.spin_start.setEnabled(False)
         self.spin_start.valueChanged.connect(self.on_spinbox_changed)
         loop_layout.addWidget(self.spin_start)
         
-        loop_layout.addWidget(QLabel("Fim:"))
+        self.lbl_end = QLabel("Fim:")
+        loop_layout.addWidget(self.lbl_end)
         self.spin_end = QSpinBox()
         self.spin_end.setRange(0, 99999999)
         self.spin_end.setEnabled(False)
         self.spin_end.valueChanged.connect(self.on_spinbox_changed)
         loop_layout.addWidget(self.spin_end)
         
-        loop_panel.setLayout(loop_layout)
-        main_layout.addWidget(loop_panel)
+        self.group_loop.setLayout(loop_layout)
+        main_layout.addWidget(self.group_loop)
 
         # 3. Visualizador
         self.waveform = WaveformWidget()
@@ -290,30 +352,76 @@ class MainWindow(QMainWindow):
         # 5. Áreas de Texto
         splitter = QSplitter(Qt.Orientation.Vertical)
         
-        group_data = QGroupBox("1. Array de Dados C++")
+        self.group_data = QGroupBox("1. Array de Dados C++")
         layout_data = QVBoxLayout()
         self.txt_data = QPlainTextEdit()
         self.txt_data.setReadOnly(True)
         self.txt_data.setFont(QFont("Consolas", 10)) 
         layout_data.addWidget(self.txt_data)
-        group_data.setLayout(layout_data)
+        self.group_data.setLayout(layout_data)
         
-        group_instrument = QGroupBox("2. Configuração do Instrumento")
+        self.group_inst = QGroupBox("2. Configuração do Instrumento")
         layout_inst = QVBoxLayout()
         self.txt_instrument = QPlainTextEdit()
         self.txt_instrument.setReadOnly(True)
         self.txt_instrument.setFont(QFont("Consolas", 10))
         layout_inst.addWidget(self.txt_instrument)
-        group_instrument.setLayout(layout_inst)
+        self.group_inst.setLayout(layout_inst)
         
-        splitter.addWidget(group_data)
-        splitter.addWidget(group_instrument)
+        splitter.addWidget(self.group_data)
+        splitter.addWidget(self.group_inst)
         splitter.setSizes([400, 200])
         
         main_layout.addWidget(splitter, 2) 
 
+    def toggle_language(self):
+        self.cur_lang = "en" if self.cur_lang == "pt" else "pt"
+        self.update_texts()
+
+    def update_texts(self):
+        t = TRANSLATIONS[self.cur_lang]
+        
+        self.setWindowTitle(t["window_title"])
+        
+        self.btn_lang.setText(t["btn_lang"])
+        
+        self.group_file.setTitle(t["grp_file"])
+        self.btn_load.setText(t["btn_load"])
+        self.btn_play.setText(t["btn_play"])
+        self.btn_stop.setText(t["btn_stop"])
+        
+        # Atualiza a label de info (se arquivo estiver carregado ou não)
+        if self.raw_data_int16 is None:
+            self.lbl_info.setText(t["no_file"])
+        else:
+            # Reconstrói a string de info com o template traduzido
+            frames = len(self.raw_data_int16)
+            duration = frames / self.sr
+            self.lbl_info.setText(t["file_info"].format(
+                os.path.basename(self.filepath), self.sr, frames, duration
+            ))
+
+        self.group_loop.setTitle(t["grp_loop"])
+        self.lbl_mode.setText(t["lbl_mode"])
+        self.lbl_start.setText(t["lbl_start"])
+        self.lbl_end.setText(t["lbl_end"])
+        
+        # Atualiza itens do Combo Box sem perder a seleção
+        current_idx = self.combo_mode.currentIndex()
+        self.combo_mode.blockSignals(True)
+        self.combo_mode.clear()
+        self.combo_mode.addItems(t["loop_modes"])
+        self.combo_mode.setCurrentIndex(current_idx)
+        self.combo_mode.blockSignals(False)
+        
+        self.waveform.setMessage(t["waveform_msg"])
+        self.btn_convert.setText(t["btn_convert"])
+        self.group_data.setTitle(t["grp_data"])
+        self.group_inst.setTitle(t["grp_inst"])
+
     def load_file(self):
-        file_name, _ = QFileDialog.getOpenFileName(self, "Abrir Arquivo de Áudio", "", "WAV Files (*.wav);;All Files (*)")
+        t = TRANSLATIONS[self.cur_lang]
+        file_name, _ = QFileDialog.getOpenFileName(self, t["dlg_title"], "", "WAV Files (*.wav);;All Files (*)")
         if file_name:
             try:
                 self.filepath = file_name
@@ -332,7 +440,11 @@ class MainWindow(QMainWindow):
                 
                 frames = len(data)
                 duration = frames / sr
-                self.lbl_info.setText(f"Arquivo: {os.path.basename(file_name)} | Taxa: {sr}Hz | Samples: {frames} | Duração: {duration:.2f}s")
+                
+                # Atualiza label usando a tradução
+                self.lbl_info.setText(t["file_info"].format(
+                    os.path.basename(file_name), sr, frames, duration
+                ))
                 
                 self.waveform.setData(data_mono_float)
                 self.spin_start.setMaximum(frames - 1)
@@ -344,7 +456,6 @@ class MainWindow(QMainWindow):
                 self.on_loop_mode_changed(0)
                 
                 # Re-inicializa o mixer com a taxa de amostragem do arquivo
-                # Isso garante que a reprodução não fique lenta/rápida em arquivos não-44k
                 try:
                     pygame.mixer.quit()
                     pygame.mixer.init(frequency=self.sr, size=-16, channels=1, buffer=512)
@@ -354,7 +465,7 @@ class MainWindow(QMainWindow):
                 self.generate_code()
 
             except Exception as e:
-                self.lbl_info.setText(f"Erro ao carregar: {e}")
+                self.lbl_info.setText(f"Error: {e}")
 
     def on_loop_mode_changed(self, index):
         is_looping = index > 0
@@ -389,12 +500,7 @@ class MainWindow(QMainWindow):
         end = self.spin_end.value()
         
         # --- LÓGICA DE PLAYBACK: ATAQUE -> LOOP ---
-        # Simula o comportamento do Synth: toca o começo até o loop start,
-        # depois fica preso no loop (ou toca tudo se não tiver loop).
-        
         if loop_mode_idx > 0: # Tem Loop
-            # Cria um buffer que contém o ATAQUE + VÁRIAS REPETIÇÕES DO LOOP
-            # (Pygame não tem "loop point" nativo perfeito, então construímos o áudio)
             attack_part = self.raw_data_int16_mono[0:start]
             loop_part = self.raw_data_int16_mono[start:end]
             
@@ -437,13 +543,11 @@ class MainWindow(QMainWindow):
             return
 
         elapsed_time = time.time() - self.playback_start_time
-        # Calcula quantos samples já tocaram no total (linear)
         played_samples = int(elapsed_time * self.sr)
         
         loop_mode_idx = self.combo_mode.currentIndex()
         
         if loop_mode_idx > 0:
-            # Lógica complexa para mapear o tempo linear de volta para a posição na onda original
             loop_start = self.spin_start.value()
             loop_end = self.spin_end.value()
             loop_len = loop_end - loop_start
@@ -451,17 +555,13 @@ class MainWindow(QMainWindow):
             if loop_len <= 0: return
 
             if played_samples < loop_start:
-                # Ainda está no ataque (antes do loop)
                 visual_pos = played_samples
             else:
-                # Já entrou no loop
                 offset_in_loop = (played_samples - loop_start) % loop_len
                 visual_pos = loop_start + offset_in_loop
         else:
-            # Modo linear simples
             visual_pos = played_samples
 
-        # Se acabou o som visualmente (passou do total), para o cursor
         if visual_pos >= len(self.raw_data_int16_mono) and loop_mode_idx == 0:
              self.waveform.setCursorPos(-1)
              self.timer.stop()

@@ -1,12 +1,34 @@
 /**
- * @file AsmSynth_Precision.ino
- * @brief Port do AsmSynth com Frequências Exatas e Controle Bruto Mas Para o ESP32Synth.
+ * @file JSBach_Toccata-d-AsmSynth-To-ESP32Synth.ino
+ * @author Danilo Gabriel
+ * @brief Plays J.S. Bach's Toccata and Fugue in D minor, BWV 565.
+ * 
+ * This example is a port of a song originally created for the AsmSynth project.
+ * It demonstrates the synthesizer's ability to play complex, multi-voice music
+ * by using a hardcoded sequence of notes and timing.
+ * 
+ * It uses a custom set of note definitions and helper functions to control
+ * multiple voices, simulating a tracker-style playback.
+ * 
+ * It uses the I2S output. Make sure you have an I2S DAC connected.
+ * - BCK_PIN:  Your I2S bit clock pin
+ * - WS_PIN:   Your I2S word select (LRC) pin
+ * - DATA_PIN: Your I2S data out pin
  */
 #include "ESP32Synth.h"
 
-#define AUDIO_PIN 5
+// --- Pin Configuration for I2S DAC ---
+// --- You MUST change these pins to match your setup ---
+const int BCK_PIN = 26;
+const int WS_PIN = 25;
+const int DATA_PIN = 22;
+
 ESP32Synth synth;
 
+// --- Note Definitions (from original AsmSynth port) ---
+// These definitions are local to this sketch to maintain compatibility
+// with the original song data. They may differ from the standard
+// ESP32SynthNotes.h definitions (e.g., 'h1' is used for 'b1').
 #define c0 1635
 #define cs0 1732
 #define d0 1835
@@ -239,17 +261,39 @@ void voice04(unsigned int a) {
 }
 
 void setup() {
-  if (!synth.begin(AUDIO_PIN,SMODE_PDM,-1,-1))// new begin
-    while (1);
-  for (int i = 0; i <= 7; i++) synth.setWave(i, WAVE_PULSE);
+  Serial.begin(115200);
+  delay(1000); 
+
+  Serial.println("ESP32Synth - J.S. Bach's Toccata in D minor");
+  Serial.printf("Using ESP32 core %s | Sample Rate: %d Hz\n", synth.getChipModel(), (int)synth.getSampleRate());
+  Serial.println("-------------------------------------------------");
+  
+  // Initialize the synth for I2S output on the specified pins, running on core 1.
+  if (!synth.begin(BCK_PIN, WS_PIN, DATA_PIN)) {
+    Serial.println("!!! ERROR: Failed to initialize synthesizer.");
+    while (1) delay(1000);
+  }
+
+  // --- Configure Voices for the Song ---
+  // Voices 0-7: Main organ sound (Pulse wave).
+  for (int i = 0; i <= 7; i++) {
+    synth.setWave(i, WAVE_PULSE);
+  }
+  // Voices 8-9: Secondary/accompaniment voices (Saw wave).
   synth.setWave(8, WAVE_SAW);
   synth.setWave(9, WAVE_SAW);
+  // Voice 10: Bass or pedal voice (Triangle wave).
   synth.setWave(10, WAVE_TRIANGLE);
 
+  // Set a very long, sustained envelope for all voices.
+  // This mimics a tracker-style playback where notes are manually stopped.
   for (int i = 0; i <= 10; i++) {
-    synth.setEnv(i, 0, 0, 255, 60000);
+    synth.setEnv(i, 0, 0, 127, 60000);
+    // Turn all voices "on" but with 0 volume.
+    // The song's logic will then control volume and frequency directly.
     synth.noteOn(i, 44000, 0);
   }
+  Serial.println("Synth initialized. Starting playback...");
 }
 
 void loop() {

@@ -16,9 +16,14 @@ Instrument_Sample inst_amen_break_44100hz = {
     0  // fim do loop ( 0 = ultimo sample)
 };
 
+const int BCK_PIN = 19;
+const int WS_PIN = 5;
+const int DATA_PIN = 18;
+
 void setup() {
     Serial.begin(115200);
-    synth.begin();
+    
+    synth.begin(BCK_PIN, WS_PIN, DATA_PIN)
     synth.registerSample(0, amen_break_44100hz_data, amen_break_44100hz_len, amen_break_44100hz_rate, c4);
     synth.setInstrument(0, &inst_amen_break_44100hz);
 

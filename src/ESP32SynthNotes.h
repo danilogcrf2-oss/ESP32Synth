@@ -119,6 +119,7 @@
 #define as8 745862
 #define b8 790213
 
+// --- OCTAVE 9 (Ultrasound for old humans, audible to young people and cats) ---
 // --- OITAVA 9 (Ultrassom para humanos velhos, audível pra jovens e gatos) ---
 #define c9 837202
 #define cs9 886984
@@ -133,6 +134,8 @@
 #define as9 1491724
 #define b9 1580427
 
+// --- OCTAVE 10 (The Nyquist Limit @ 48kHz/52kHz) ---
+// Caution: At these frequencies, any wavetable other than SINE may distort.
 // --- OITAVA 10 (O Limite de Nyquist @ 48kHz/52kHz) ---
 // Cuidado: Nessas frequências, qualquer wavetable que não seja SINE pode distorcer.
 #define c10 1674404
