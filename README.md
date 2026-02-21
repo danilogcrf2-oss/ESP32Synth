@@ -1,6 +1,10 @@
-# ESP32Synth v2.3.1 — Professional Audio Synthesis Library
+# ESP32Synth v2.3.5-beta — Professional Audio Synthesis Library
 
-![Version](https://img.shields.io/badge/version-2.3.1-green.svg) ![Platform](https://img.shields.io/badge/platform-ESP32-orange.svg) ![License](https://img.shields.io/badge/license-MIT-blue.svg)
+<p align="center">
+  <img src="banner.jpg" alt="ESP32Synth banner" width="100%">
+</p>
+
+![Version](https://img.shields.io/badge/beta version-2.3.5-orange.svg) ![Platform](https://img.shields.io/badge/platform-ESP32-orange.svg) ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 
 **[English]** A high-performance, polyphonic audio synthesis library for the ESP32. It is engineered for professional applications and hobbyist projects that require low-latency, high-polyphony audio synthesis with a rich and flexible feature set.
 
@@ -212,6 +216,22 @@ The sampler can play back pre-recorded PCM audio.
 5.  **Assign and Play:**
     `void setInstrument(uint8_t voice, Instrument_Sample* inst);`
     *   Use this function to attach the sampler instrument to a voice, then use `noteOn()` to play it. The frequency passed to `noteOn()` will determine the playback pitch.
+
+### Raw Sample Control
+For situations requiring direct, dynamic control over sample playback without the overhead of the `Instrument_Sample` structure, you can use the raw control functions. This is ideal for tasks like building drum machines where you want to trigger different samples on the same voice quickly or create complex loops on the fly.
+
+This method still requires the sample to be registered first using `registerSample()`.
+
+*   `void setSample(uint8_t voice, uint16_t sampleId, LoopMode loopMode = LOOP_OFF, uint32_t loopStart = 0, uint32_t loopEnd = 0);`
+    *   Directly assigns a registered sample to a voice and sets its playback properties.
+    *   Calling this function detaches any existing `Instrument_Sample` from the voice.
+    *   `sampleId`: The ID of the sample you previously registered.
+    *   `loopMode`: Sets the loop behavior (`LOOP_OFF`, `LOOP_FORWARD`, `LOOP_PINGPONG`, `LOOP_REVERSE`).
+    *   `loopStart`/`loopEnd`: Defines the loop region in samples. `loopEnd = 0` means the end of the sample.
+
+*   `void setSampleLoop(uint8_t voice, LoopMode loopMode, uint32_t loopStart, uint32_t loopEnd);`
+    *   Allows you to change the loop parameters of a voice *while it is playing a sample*.
+    *   This is powerful for dynamically altering loops without re-triggering the note.
 
 ### Tracker-Style Instruments: `Instrument`
 This advanced feature allows a single note to trigger a sequence of different timbres and volumes. This is perfect for creating percussive hits, laser zaps, or evolving pads.
@@ -622,6 +642,22 @@ O sampler pode reproduzir áudio PCM pré-gravado.
 5.  **Atribuir e Tocar:**
     `void setInstrument(uint8_t voice, Instrument_Sample* inst);`
     *   Use esta função para anexar o instrumento sampler a uma voz, depois use `noteOn()` para tocá-lo. A frequência passada para `noteOn()` determinará o tom de reprodução.
+
+### Controle Bruto de Samples
+Para situações que exigem controle direto e dinâmico sobre a reprodução de samples sem a sobrecarga da estrutura `Instrument_Sample`, você pode usar as funções de controle bruto. Isso é ideal para tarefas como a construção de baterias eletrônicas, onde você deseja disparar diferentes samples na mesma voz rapidamente ou criar loops complexos dinamicamente.
+
+Este método ainda exige que o sample seja registrado primeiro usando `registerSample()`.
+
+*   `void setSample(uint8_t voice, uint16_t sampleId, LoopMode loopMode = LOOP_OFF, uint32_t loopStart = 0, uint32_t loopEnd = 0);`
+    *   Atribui diretamente um sample registrado a uma voz e define suas propriedades de reprodução.
+    *   Chamar esta função desvincula qualquer `Instrument_Sample` existente da voz.
+    *   `sampleId`: O ID do sample que você registrou anteriormente.
+    *   `loopMode`: Define o comportamento do loop (`LOOP_OFF`, `LOOP_FORWARD`, `LOOP_PINGPONG`, `LOOP_REVERSE`).
+    *   `loopStart`/`loopEnd`: Define a região de loop em amostras. `loopEnd = 0` significa o final do sample.
+
+*   `void setSampleLoop(uint8_t voice, LoopMode loopMode, uint32_t loopStart, uint32_t loopEnd);`
+    *   Permite que você altere os parâmetros de loop de uma voz *enquanto ela está tocando um sample*.
+    *   Isso é poderoso para alterar loops dinamicamente sem precisar redisparar a nota.
 
 ### Instrumentos Estilo Tracker: `Instrument`
 Este recurso avançado permite que uma única nota dispare uma sequência de diferentes timbres e volumes. É perfeito para criar batidas percussivas, sons de laser ou pads evolutivos.
