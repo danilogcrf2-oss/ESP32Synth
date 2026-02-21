@@ -52,7 +52,6 @@
 enum SynthOutputMode { SMODE_PDM, SMODE_I2S, SMODE_DAC };
 
 enum WaveType { WAVE_SINE, WAVE_TRIANGLE, WAVE_SAW, WAVE_PULSE, WAVE_WAVETABLE, WAVE_NOISE, WAVE_SAMPLE };
-enum FilterType { FILTER_NONE, FILTER_LP, FILTER_HP, FILTER_BP };
 enum BitDepth { BITS_4, BITS_8, BITS_16 };
 enum EnvState { ENV_IDLE, ENV_ATTACK, ENV_DECAY, ENV_SUSTAIN, ENV_RELEASE };
 enum I2S_Depth { 
@@ -81,20 +80,25 @@ enum LoopMode {
 #define W_NOISE    -5
 
 struct Instrument {
-    const uint8_t* seqVolumes;    
-    const int16_t* seqWaves;      
-    uint8_t        seqLen;        
-    uint16_t       seqSpeedMs;    
-
-    uint8_t        susVol;
-    int16_t        susWave;       
-
+    // Pointers (4 bytes each on ESP32)
+    const uint8_t* seqVolumes;
+    const int16_t* seqWaves;
     const uint8_t* relVolumes;
     const int16_t* relWaves;
-    uint8_t        relLen;
-    uint16_t       relSpeedMs;
 
-    bool           smoothMorph; 
+    // 16-bit values
+    uint16_t       seqSpeedMs;
+    int16_t        susWave;
+    uint16_t       relSpeedMs;
+    
+    // 8-bit values
+    uint8_t        seqLen;
+    uint8_t        susVol;
+    uint8_t        relLen;
+
+    // Flags
+    bool           smoothMorph;
+    // Minimal padding will be added by the compiler here.
 };
 
 #define MAX_SAMPLES 100 
@@ -124,95 +128,88 @@ struct Instrument_Sample {
 };
 
 struct Voice {
-    bool active = false; 
-    uint32_t freqVal = 0;      
-    uint32_t phase = 0;        
-    uint32_t phaseInc = 0;     
-    uint8_t vol = 127; 
-    uint32_t pulseWidth = 0x80000000; 
-    uint32_t rngState = 12345; 
-    int16_t noiseSample = 0;   
-    
-    // Vibrato
-    uint32_t vibPhase = 0;
-    uint32_t vibRateInc = 0;
-    uint32_t vibDepthInc = 0;
-    int32_t  vibOffset = 0; 
+    // --- Large & Hot Data (Frequently accessed in render loop) ---
+    // 64-bit (8 bytes)
+    uint64_t samplePos1616;
 
-    // Tremolo
-    uint32_t trmPhase = 0;      
-    uint32_t trmRateInc = 0;    
-    uint16_t trmDepth = 0;      
-    uint16_t trmModGain = 256;  
+    // Pointers (4 bytes each on ESP32)
+    const void* wtData;
+    Instrument* inst;
+    Instrument_Sample* instSample;
 
-    EnvState envState = ENV_IDLE;
-    uint32_t currEnvVal = 0;   
-    uint32_t rateAttack = 0;
-    uint32_t rateDecay = 0;
-    uint32_t rateRelease = 0;
-    uint32_t levelSustain = 0;
+    // --- Phase and Envelope Data (32-bit) ---
+    uint32_t phase;
+    uint32_t phaseInc;
+    uint32_t currEnvVal;
+    int32_t  vibOffset;
+    uint32_t sampleInc1616;
 
-    // Parâmetros de síntese
-    // Synthesis parameters
-    WaveType type = WAVE_SINE;
-    const void* wtData = nullptr;
-    uint32_t wtSize = 0;
-    BitDepth depth = BITS_8;    
+    // --- Control & State Data (Mostly accessed in control loop) ---
+    // 32-bit
+    uint32_t freqVal;
+    uint32_t pulseWidth;
+    uint32_t rngState;
+    uint32_t vibPhase;
+    uint32_t vibRateInc;
+    uint32_t vibDepthInc;
+    uint32_t trmPhase;
+    uint32_t trmRateInc;
+    uint32_t rateAttack;
+    uint32_t rateDecay;
+    uint32_t rateRelease;
+    uint32_t levelSustain;
+    uint32_t wtSize;
+    uint32_t controlTick;
+    uint32_t slideTicksRemaining;
+    uint32_t slideTicksTotal;
+    uint32_t slideTargetInc;
+    uint32_t slideTargetFreqCenti;
+    uint32_t arpTickCounter;
+    uint32_t sampleLoopStart;
+    uint32_t sampleLoopEnd;
 
-    // Estado do instrumento
-    // Instrument state
-    Instrument* inst = nullptr;
-    uint8_t stageIdx = 0;       
-    uint32_t controlTick = 0;   
-    uint16_t currWaveId = 0;    
-    uint16_t nextWaveId = 0;    
-    uint8_t currWaveIsBasic = 0; 
-    uint8_t nextWaveIsBasic = 0; 
-    uint8_t currWaveType = 0;   
-    uint8_t nextWaveType = 0;   
-    uint8_t morph = 0;          
+    // 32-bit (signed)
+    int32_t slideDeltaInc;
+    int32_t slideRem;
+    int32_t slideRemAcc;
 
-    uint16_t attackMs = 0;
-    uint16_t decayMs = 0;
-    uint16_t releaseMs = 0;
+    // Arpeggiator notes array
+    uint32_t arpNotes[MAX_ARP_NOTES];
 
-    // Estado do portamento (slide)
-    // Portamento (slide) state
-    bool slideActive = false;
-    uint32_t slideTicksRemaining = 0; 
-    uint32_t slideTicksTotal = 0;     
-    int32_t slideDeltaInc = 0;        
-    uint32_t slideTargetInc = 0;      
-    uint32_t slideTargetFreqCenti = 0; 
-    int32_t slideRem = 0;              
-    int32_t slideRemAcc = 0;          
+    // 16-bit
+    int16_t  noiseSample;
+    uint16_t trmDepth;
+    uint16_t trmModGain;
+    uint16_t currWaveId;
+    uint16_t nextWaveId;
+    uint16_t attackMs;
+    uint16_t decayMs;
+    uint16_t releaseMs;
+    uint16_t arpSpeedMs;
+    uint16_t curSampleId;
 
-    // Estado do arpejador
-    // Arpeggiator state
-    bool     arpActive = false;       
-    uint32_t arpNotes[MAX_ARP_NOTES]; 
-    uint8_t  arpLen = 0;              
-    uint8_t  arpIdx = 0;              
-    uint16_t arpSpeedMs = 100;        
-    uint32_t arpTickCounter = 0;     
+    // 8-bit & Enums
+    uint8_t  vol;
+    EnvState envState;
+    WaveType type;
+    BitDepth depth;
+    uint8_t  stageIdx;
+    uint8_t  currWaveIsBasic;
+    uint8_t  nextWaveIsBasic;
+    uint8_t  currWaveType;
+    uint8_t  nextWaveType;
+    uint8_t  morph;
+    uint8_t  arpLen;
+    uint8_t  arpIdx;
+    LoopMode sampleLoopMode;
 
-    // Motor de Sample
-    // Sample Engine
-    Instrument_Sample* instSample = nullptr; 
-    uint16_t curSampleId = 0;
-    
-    // Posição 64-bit para evitar overflow
-    // 64-bit position to avoid overflow
-    uint64_t samplePos1616 = 0; 
-    uint32_t sampleInc1616 = 0; 
-    
-    // Controle de Loop
-    // Loop Control
-    LoopMode sampleLoopMode = LOOP_OFF;
-    bool     sampleDirection = true; // true: forward, false: backward
-    uint32_t sampleLoopStart = 0;
-    uint32_t sampleLoopEnd = 0;
-    bool     sampleFinished = false; 
+    // Bools (1 byte each)
+    bool active;
+    bool slideActive;
+    bool arpActive;
+    bool sampleDirection;
+    bool sampleFinished;
+    // The compiler will add minimal padding here to align the struct.
 };
 
 class ESP32Synth {
@@ -274,6 +271,7 @@ public:
     void detachInstrumentAndSetWave(uint8_t voice, WaveType type); 
     void registerWavetable(uint16_t id, const void* data, uint32_t size, BitDepth depth); 
     void setControlRateHz(uint16_t hz); 
+    void detachInstrument(uint8_t voice, WaveType NewWaveType);
 
     void slide(uint8_t voice, uint32_t startFreqCentiHz, uint32_t endFreqCentiHz, uint32_t durationMs);
     void slideTo(uint8_t voice, uint32_t endFreqCentiHz, uint32_t durationMs);
@@ -289,8 +287,10 @@ public:
 
     // Samples
     void setInstrument(uint8_t voice, Instrument_Sample* inst); 
-    void registerSample(uint16_t id, const int16_t* data, uint32_t length, uint32_t sampleRate, uint32_t rootFreqCentiHz);
-    
+    bool registerSample(uint16_t sampleId, const int16_t* data, uint32_t length, uint32_t sampleRate, uint32_t rootFreqCentiHz);
+    /// Controle Bruto de Sample (Raw Sample Control)
+    void setSample(uint8_t voice, uint16_t sampleId, LoopMode loopMode = LOOP_OFF, uint32_t loopStart = 0, uint32_t loopEnd = 0);
+    void setSampleLoop(uint8_t voice, LoopMode loopMode, uint32_t loopStart, uint32_t loopEnd);
     void renderLoop();
     
     bool isVoiceActive(uint8_t voice) { return voices[voice].active; }
@@ -341,7 +341,7 @@ private:
     
     uint32_t controlSampleCounter = 0; 
     uint16_t controlRateHz = 100;      
-    uint32_t controlIntervalSamples = (SYNTH_RATE / 100);
+    uint32_t controlIntervalSamples;
 
     int16_t fetchWavetableSample(uint16_t id, uint32_t phase);
     uint8_t _masterVolume = 255; 

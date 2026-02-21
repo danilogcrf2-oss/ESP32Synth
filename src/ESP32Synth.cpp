@@ -61,26 +61,62 @@ static void IRAM_ATTR renderBlockSample(Voice* vo, int32_t* mixBuffer, int sampl
 // Renders an audio block for a wavetable voice.
 static void IRAM_ATTR renderBlockWavetable(Voice* vo, int32_t* mixBuffer, int samples, int32_t startEnv, int32_t envStep) {
     if (!vo->wtData) return;
+
+    // Common variables loaded from voice struct to be kept in registers
     int32_t currentEnv = startEnv;
     int32_t volBase = (int32_t)vo->vol * vo->trmModGain >> 8;
     uint32_t ph = vo->phase;
-    uint32_t inc = vo->phaseInc + vo->vibOffset; 
+    uint32_t inc = vo->phaseInc + vo->vibOffset;
     const uint32_t size = vo->wtSize;
-    const void* data = vo->wtData;
-    const bool is8bit = (vo->depth == BITS_8);
-    for (int i = 0; i < samples; i++) {
-        uint32_t idx = (uint32_t)(((uint64_t)ph * size) >> 32);
-        if (idx >= size) idx = 0; 
-        int16_t s;
-        if (is8bit) s = (((uint8_t*)data)[idx] - 128) << 8;
-        else s = ((int16_t*)data)[idx];
-        int32_t finalVol = (currentEnv >> 20) * volBase; 
-        
-        mixBuffer[i] += (s * finalVol) >> 16;
-        ph += inc;
-        currentEnv += envStep;
+
+    // Branch once on bit depth, then enter a dedicated tight loop
+    switch (vo->depth) {
+        case BITS_16: {
+            const int16_t* data = (const int16_t*)vo->wtData;
+            for (int i = 0; i < samples; i++) {
+                uint32_t idx = (uint32_t)(((uint64_t)ph * size) >> 32);
+                int16_t s = data[idx];
+                int32_t finalVol = (currentEnv >> 20) * volBase;
+                mixBuffer[i] += (s * finalVol) >> 16;
+                ph += inc;
+                currentEnv += envStep;
+            }
+            break;
+        }
+
+        case BITS_8: {
+            const uint8_t* data = (const uint8_t*)vo->wtData;
+            for (int i = 0; i < samples; i++) {
+                uint32_t idx = (uint32_t)(((uint64_t)ph * size) >> 32);
+                int16_t s = ((int16_t)data[idx] - 128) << 8;
+                int32_t finalVol = (currentEnv >> 20) * volBase;
+                mixBuffer[i] += (s * finalVol) >> 16;
+                ph += inc;
+                currentEnv += envStep;
+            }
+            break;
+        }
+
+        case BITS_4: {
+            const uint8_t* data = (const uint8_t*)vo->wtData;
+            for (int i = 0; i < samples; i++) {
+                uint32_t idx = (uint32_t)(((uint64_t)ph * size) >> 32);
+                
+                // Branchless 4-bit unpacking using bitwise logic
+                uint8_t shift = (idx & 1) << 2; // 0 for even idx, 4 for odd idx
+                uint8_t val = (data[idx >> 1] >> shift) & 0x0F;
+                int16_t s = ((int16_t)val - 8) * 4096;
+
+                int32_t finalVol = (currentEnv >> 20) * volBase;
+                mixBuffer[i] += (s * finalVol) >> 16;
+                ph += inc;
+                currentEnv += envStep;
+            }
+            break;
+        }
     }
-    vo->phase = ph;
+
+    vo->phase = ph; // Store the updated phase back into the voice struct
 }
 
 // Renderiza um bloco de áudio para uma voz de onda básica (saw, sine, pulse, triangle).
@@ -184,7 +220,6 @@ ESP32Synth::ESP32Synth() {
     }
     controlSampleCounter = 0;
     controlRateHz = 100;
-    controlIntervalSamples = (_sampleRate / controlRateHz) ? (_sampleRate / controlRateHz) : 1;
 }
 
 ESP32Synth::~ESP32Synth() {
@@ -222,6 +257,7 @@ bool ESP32Synth::begin(int dataPin, SynthOutputMode mode, int clkPin, int wsPin,
         if (mode == SMODE_PDM) _sampleRate = 52036; else _sampleRate = 48000; 
     #else
         _sampleRate = 48000; 
+        controlIntervalSamples = _sampleRate / controlRateHz;
     #endif
 
     controlIntervalSamples = (_sampleRate / controlRateHz) ? (_sampleRate / controlRateHz) : 1;
@@ -509,6 +545,30 @@ void ESP32Synth::setWavetable(const void* data, uint32_t size, BitDepth depth) {
     }
 }
 
+void ESP32Synth::setSample(uint8_t voice, uint16_t sampleId, LoopMode loopMode, uint32_t loopStart, uint32_t loopEnd) {
+    if (voice >= MAX_VOICES || sampleId >= MAX_SAMPLES) return;
+    Voice* v = &voices[voice];
+    
+    v->type = WAVE_SAMPLE;
+    v->curSampleId = sampleId;
+    v->sampleLoopMode = loopMode;
+    v->sampleLoopStart = loopStart;
+    v->sampleLoopEnd = loopEnd;
+    
+    // Desacopla qualquer instrumento de sample anterior para forçar o controle bruto
+    v->instSample = nullptr; 
+}
+
+void ESP32Synth::setSampleLoop(uint8_t voice, LoopMode loopMode, uint32_t loopStart, uint32_t loopEnd) {
+    if (voice >= MAX_VOICES) return;
+    Voice* v = &voices[voice];
+    
+    // Agora o tipo está seguro e blindado
+    v->sampleLoopMode = loopMode;
+    v->sampleLoopStart = loopStart;
+    v->sampleLoopEnd = loopEnd;
+}
+
 void ESP32Synth::setEnv(uint8_t voice, uint16_t a, uint16_t d, uint8_t s, uint16_t r) {
     if (voice >= MAX_VOICES) return;
     Voice* v = &voices[voice];
@@ -534,7 +594,6 @@ void ESP32Synth::noteOn(uint8_t voice, uint32_t freqCentiHz, uint8_t volume) {
 
     controlSampleCounter = controlIntervalSamples; 
 
-    // Modo Instrumento
     if (vo->inst) {
         vo->envState = ENV_ATTACK;
         vo->currEnvVal = ENV_MAX;
@@ -547,7 +606,7 @@ void ESP32Synth::noteOn(uint8_t voice, uint32_t freqCentiHz, uint8_t volume) {
         vo->morph = 0;
         processControl();
     } 
-    // Modo Sample
+
     else if (vo->instSample) {
         vo->type = WAVE_SAMPLE;
         vo->envState = ENV_ATTACK;
@@ -589,15 +648,41 @@ void ESP32Synth::noteOn(uint8_t voice, uint32_t freqCentiHz, uint8_t volume) {
             vo->sampleInc1616 = (uint32_t)(pitchRatio * rateRatio * 65536.0f);
         } else { vo->sampleInc1616 = 0; }
     }
-    // Modo Padrão
+    
     else {
-        if (vo->type == WAVE_NOISE) vo->rngState += micros(); 
+        if (vo->type == WAVE_NOISE) {
+            vo->rngState += micros(); 
+        } 
+        else if (vo->type == WAVE_SAMPLE) {
+            
+            vo->sampleFinished = false;
+            const SampleData* sData = &registeredSamples[vo->curSampleId];
+            
+            if (vo->sampleLoopMode == LOOP_REVERSE) {
+                vo->sampleDirection = false;
+                vo->samplePos1616 = (uint64_t)sData->length << 16;
+            } else {
+                vo->sampleDirection = true;
+                vo->samplePos1616 = 0;
+            }
+            if (sData->data && sData->rootFreqCentiHz > 0) {
+                uint64_t ratio1616 = ((uint64_t)freqCentiHz << 16) / sData->rootFreqCentiHz;
+                vo->sampleInc1616 = (uint32_t)((ratio1616 * sData->sampleRate) / _sampleRate);
+            } else { 
+                vo->sampleInc1616 = 0; 
+            }
+        } 
+        else {
+            vo->phase = 0; 
+        }
+
         if (vo->arpActive) { vo->arpIdx = 0; vo->arpTickCounter = 0; }
         
         if (vo->rateAttack >= ENV_MAX) {
             vo->currEnvVal = ENV_MAX; 
             vo->envState = ENV_DECAY;
         } else {
+            vo->currEnvVal = 0; 
             vo->envState = ENV_ATTACK;
         }
     }
@@ -617,10 +702,18 @@ void ESP32Synth::setWave(uint8_t voice, WaveType type) {
 
 void ESP32Synth::setFrequency(uint8_t voice, uint32_t freqCentiHz) {
     if (voice >= MAX_VOICES) return;
-    voices[voice].freqVal = freqCentiHz;
-    uint64_t num = (uint64_t)freqCentiHz << 32;
-    uint32_t den = _sampleRate * 100;
-    voices[voice].phaseInc = (uint32_t)(num / den);
+    Voice* v = &voices[voice];
+    v->freqVal = freqCentiHz;
+    if (v->type == WAVE_SAMPLE && v->instSample == nullptr) {
+        const SampleData* sData = &registeredSamples[v->curSampleId];
+        if (sData->data && sData->rootFreqCentiHz > 0) {
+          
+            uint64_t ratio1616 = ((uint64_t)freqCentiHz << 16) / sData->rootFreqCentiHz;
+            v->sampleInc1616 = (uint32_t)((ratio1616 * sData->sampleRate) / _sampleRate);
+        }
+    } else {
+        v->phaseInc = (uint32_t)(((uint64_t)freqCentiHz * 4294967296ULL) / (_sampleRate * 100ULL));
+    }
 }
 
 void ESP32Synth::setVolume(uint8_t voice, uint8_t volume) {
@@ -647,14 +740,14 @@ void ESP32Synth::setInstrument(uint8_t voice, Instrument* inst) {
     }
 }
 
-void ESP32Synth::detachWave(uint8_t voice, WaveType type) {
+void ESP32Synth::detachWave(uint8_t voice, WaveType NewWaveType) {
     if (voice >= MAX_VOICES) return;
     setInstrument(voice, (Instrument*)nullptr); 
-    setWave(voice, type);
+    setWave(voice, NewWaveType);
 }
 
-void ESP32Synth::detachInstrumentAndSetWave(uint8_t voice, WaveType type) {
-    detachWave(voice, type);
+void ESP32Synth::detachInstrument(uint8_t voice, WaveType NewWaveType) {
+    detachWave(voice, NewWaveType);
 } 
 
 void ESP32Synth::registerWavetable(uint16_t id, const void* data, uint32_t size, BitDepth depth) {
@@ -665,9 +758,10 @@ void ESP32Synth::registerWavetable(uint16_t id, const void* data, uint32_t size,
 }
 
 void ESP32Synth::setControlRateHz(uint16_t hz) {
-    if (hz == 0) return;
-    controlRateHz = hz;
-    controlIntervalSamples = (_sampleRate / controlRateHz) ? (_sampleRate / controlRateHz) : 1;
+    if (hz > 0) {
+        controlRateHz = hz;
+        controlIntervalSamples = (_sampleRate / controlRateHz) ? (_sampleRate / controlRateHz) : 1; 
+    }
 }
 
 void ESP32Synth::slide(uint8_t voice, uint32_t startFreqCentiHz, uint32_t endFreqCentiHz, uint32_t durationMs) {
@@ -699,12 +793,16 @@ void ESP32Synth::slideTo(uint8_t voice, uint32_t endFreqCentiHz, uint32_t durati
     }
     slide(voice, start, endFreqCentiHz, durationMs);
 }
-void ESP32Synth::registerSample(uint16_t id, const int16_t* data, uint32_t length, uint32_t sampleRate, uint32_t rootFreqCentiHz) {
-    if (id >= MAX_SAMPLES) return;
-    registeredSamples[id].data = data;
-    registeredSamples[id].length = length;
-    registeredSamples[id].sampleRate = sampleRate;
-    registeredSamples[id].rootFreqCentiHz = rootFreqCentiHz;
+
+bool ESP32Synth::registerSample(uint16_t sampleId, const int16_t* data, uint32_t length, uint32_t sampleRate, uint32_t rootFreqCentiHz) {
+    if (sampleId >= MAX_SAMPLES || data == nullptr) return false;
+    
+    registeredSamples[sampleId].data = data;
+    registeredSamples[sampleId].length = length;
+    registeredSamples[sampleId].sampleRate = sampleRate;
+    registeredSamples[sampleId].rootFreqCentiHz = rootFreqCentiHz;
+    
+    return true;
 }
 
 void ESP32Synth::setInstrument(uint8_t voice, Instrument_Sample* inst) {
@@ -718,7 +816,21 @@ IRAM_ATTR int16_t ESP32Synth::fetchWavetableSample(uint16_t id, uint32_t phase) 
     const auto &e = wavetables[id];
     if (!e.data || e.size == 0) return 0;
     uint32_t idx = (uint32_t)(((uint64_t)phase * e.size) >> 32);
-    if (e.depth == BITS_8) return (((uint8_t*)e.data)[idx] - 128) << 8;
+
+    if (e.depth == BITS_8) {
+        return (((uint8_t*)e.data)[idx] - 128) << 8;
+    } else if (e.depth == BITS_4) {
+        const uint8_t* p = (const uint8_t*)e.data;
+        uint8_t val = p[idx / 2];
+        if ((idx & 1) == 0) { // Check for even index
+            val &= 0x0F; // Low nibble
+        } else {
+            val >>= 4;   // High nibble
+        }
+        return ((int16_t)val - 8) * 4096;
+    }
+    
+    // Default to 16-bit
     return ((int16_t*)e.data)[idx];
 }
 

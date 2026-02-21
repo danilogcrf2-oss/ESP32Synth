@@ -1,9 +1,6 @@
-# ESP32Synth v2.3.0 — Professional Audio Synthesis Library
-<p align="center">
-  <img src="banner.jpg" alt="ESP32Synth banner" width="100%">
-</p>
+# ESP32Synth v2.3.1 — Professional Audio Synthesis Library
 
-![Version](https://img.shields.io/badge/version-2.3.0-green.svg) ![Platform](https://img.shields.io/badge/platform-ESP32-orange.svg) ![License](https://img.shields.io/badge/license-MIT-blue.svg)
+![Version](https://img.shields.io/badge/version-2.3.1-green.svg) ![Platform](https://img.shields.io/badge/platform-ESP32-orange.svg) ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 
 **[English]** A high-performance, polyphonic audio synthesis library for the ESP32. It is engineered for professional applications and hobbyist projects that require low-latency, high-polyphony audio synthesis with a rich and flexible feature set.
 
@@ -332,6 +329,48 @@ The `tools` directory contains helpful Python scripts:
 *   **Compilation errors about `i2s` or `dac` functions:**
     *   Your ESP32 board support package in the Arduino IDE is likely outdated. Update it via the Boards Manager.
 
+---
+
+## Advanced Usage: Wavetable Memory Management
+
+A critical detail when working with wavetables is understanding the difference between the number of samples and the size of the data array in bytes. The `setWavetable()` and `registerWavetable()` functions expect the `size` parameter to be the **number of individual samples** in the waveform, not the byte size of the array.
+
+When using C++'s `sizeof()` operator, you get the total size of the array in bytes. To get the correct number of samples, you must adjust this value based on the wavetable's bit depth.
+
+### `BITS_16` (16-bit wavetables)
+Each sample is an `int16_t`, which takes up 2 bytes. To get the number of samples, you must **divide by 2**.
+
+```cpp
+// A 16-bit wavetable with 256 samples occupies 512 bytes.
+const int16_t my_wave_16bit[256] = { ... };
+
+// Correct usage:
+synth.setWavetable(0, my_wave_16bit, sizeof(my_wave_16bit) / 2, BITS_16);
+```
+
+### `BITS_8` (8-bit wavetables)
+Each sample is a `uint8_t`, which takes up 1 byte. The number of samples is equal to the size in bytes.
+
+```cpp
+// An 8-bit wavetable with 256 samples occupies 256 bytes.
+const uint8_t my_wave_8bit[256] = { ... };
+
+// Correct usage:
+synth.setWavetable(0, my_wave_8bit, sizeof(my_wave_8bit), BITS_8);
+```
+
+### `BITS_4` (4-bit wavetables)
+4-bit samples are packed, with **two samples stored in a single `uint8_t`**. To get the total number of samples, you must **multiply by 2**.
+
+```cpp
+// A 4-bit wavetable with 256 samples occupies 128 bytes.
+const uint8_t my_wave_4bit[128] = { ... };
+
+// Correct usage:
+synth.setWavetable(0, my_wave_4bit, sizeof(my_wave_4bit) * 2, BITS_4);
+```
+The `WavetableMaker.py` tool now automatically generates example code that uses the correct `sizeof()` logic.
+
 <br>
 <hr>
 <br>
@@ -361,6 +400,49 @@ The `tools` directory contains helpful Python scripts:
 6.  [**Gerenciamento de Vozes para Polifonia**](#6-gerenciamento-de-vozes-para-polifonia-1)
 7.  [**Ferramentas Inclusas**](#7-ferramentas-inclusas-1)
 8.  [**Solução de Problemas**](#8-solução-de-problemas-1)
+
+---
+
+## Uso Avançado: Gerenciamento de Memória de Wavetables
+
+Um detalhe crítico ao trabalhar com wavetables é entender a diferença entre o número de amostras (samples) e o tamanho do array de dados em bytes. As funções `setWavetable()` e `registerWavetable()` esperam que o parâmetro `size` seja o **número de amostras individuais** na forma de onda, e não o tamanho do array em bytes.
+
+Ao usar o operador `sizeof()` do C++, você obtém o tamanho total do array em bytes. Para obter o número correto de amostras, você deve ajustar esse valor com base na profundidade de bits (bit depth) da wavetable.
+
+### `BITS_16` (wavetables de 16-bit)
+Cada amostra é um `int16_t`, que ocupa 2 bytes. Para obter o número de amostras, você deve **dividir por 2**.
+
+```cpp
+// Uma wavetable de 16-bit com 256 amostras ocupa 512 bytes.
+const int16_t my_wave_16bit[256] = { ... };
+
+// Uso correto:
+synth.setWavetable(0, my_wave_16bit, sizeof(my_wave_16bit) / 2, BITS_16);
+```
+
+### `BITS_8` (wavetables de 8-bit)
+Cada amostra é um `uint8_t`, que ocupa 1 byte. O número de amostras é igual ao tamanho em bytes.
+
+```cpp
+// Uma wavetable de 8-bit com 256 amostras ocupa 256 bytes.
+const uint8_t my_wave_8bit[256] = { ... };
+
+// Uso correto:
+synth.setWavetable(0, my_wave_8bit, sizeof(my_wave_8bit), BITS_8);
+```
+
+### `BITS_4` (wavetables de 4-bit)
+As amostras de 4-bit são compactadas, com **duas amostras armazenadas em um único `uint8_t`**. Para obter o número total de amostras, você deve **multiplicar por 2**.
+
+```cpp
+// Uma wavetable de 4-bit com 256 amostras ocupa 128 bytes.
+const uint8_t my_wave_4bit[128] = { ... };
+
+// Uso correto:
+synth.setWavetable(0, my_wave_4bit, sizeof(my_wave_4bit) * 2, BITS_4);
+```
+A ferramenta `WavetableMaker.py` agora gera automaticamente o código de exemplo que utiliza a lógica `sizeof()` correta.
+
 
 ---
 

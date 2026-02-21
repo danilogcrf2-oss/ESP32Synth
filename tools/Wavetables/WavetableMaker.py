@@ -2,12 +2,14 @@ import sys
 import numpy as np
 import pygame
 import math
+import copy
 
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
     QPushButton, QLabel, QComboBox, QSpinBox, QPlainTextEdit, 
     QSplitter, QGroupBox, QStyle, QLineEdit, QDialog, QSlider, QScrollArea, 
-    QFrame, QRadioButton, QButtonGroup, QTabWidget, QGridLayout, QSizePolicy, QDoubleSpinBox
+    QFrame, QRadioButton, QButtonGroup, QTabWidget, QGridLayout, QSizePolicy, QDoubleSpinBox,
+    QListWidget, QListWidgetItem, QCheckBox
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QPointF, QRectF, QRect
 from PyQt6.QtGui import QPainter, QColor, QPen, QPalette, QFont, QBrush, QPainterPath
@@ -15,7 +17,7 @@ from PyQt6.QtGui import QPainter, QColor, QPen, QPalette, QFont, QBrush, QPainte
 # --- DICIONÁRIO DE TRADUÇÃO ---
 TRANSLATIONS = {
     "pt": {
-        "window_title": "Criador de Wavetables para ESP32Synth (FM Edition)",
+        "window_title": "Criador de Wavetables para ESP32Synth (Ultimate Edition)",
         "config_box": "Configurações da Wavetable",
         "name_lbl": "Nome:",
         "size_lbl": "Tamanho:",
@@ -25,7 +27,8 @@ TRANSLATIONS = {
         "bits_4": "4-bit (Glitch/Lo-Fi)",
         "tab_formula": "Fórmula",
         "tab_additive": "Aditiva",
-        "tab_fm": "Síntese FM (4-Op)", # Nova Aba
+        "tab_fm": "Síntese FM",
+        "tab_filters": "Filtros & FX",
         "math_func": "Função Matemática (numpy):",
         "tip_formula": "Dica: Use 'x' para ângulo (0 a 2pi).",
         "reset_add": "Resetar Aditiva",
@@ -40,9 +43,42 @@ TRANSLATIONS = {
         "op_ratio": "Ratio",
         "op_level": "Level",
         "op_detune": "Detune",
+        # Filtros
+        "filter_type": "Tipo de Efeito:",
+        "filter_p1": "Parâmetro 1 (Cutoff/Drive):",
+        "filter_p2": "Parâmetro 2 (Res/Mix):",
+        "btn_apply": "Aplicar Efeito",
+        "btn_undo": "Desfazer (Undo)",
+        "fx_lp": "Low Pass (FFT)",
+        "fx_hp": "High Pass (FFT)",
+        "fx_bp": "Band Pass (FFT)",
+        "fx_notch": "Notch (FFT)",
+        "fx_fold": "Wave Folder (Distortion)",
+        "fx_sat": "Saturation (Soft Clip)",
+        "fx_redux": "Sample Rate Redux",
+        "fx_norm": "Normalize (Max Vol)",
+        # Morph Tab
+        "tab_morph": "Morph / Animation",
+        "morph_grp_capture": "1. Keyframe Capture",
+        "morph_btn_capture": "📸 Capture Current Frame (Snapshot)",
+        "morph_btn_up": "▲",
+        "morph_btn_down": "▼",
+        "morph_btn_dup": "Duplicate",
+        "morph_btn_del": "Delete",
+        "morph_btn_update": "Update Frame",
+        "morph_grp_engine": "2. Animation Generation",
+        "morph_lbl_anim_size": "Final Animation Frames:",
+        "morph_btn_gen": "Generate Animation (Morph)",
+        "morph_grp_preview": "3. Animation Preview",
+        "morph_btn_play": "▶ Play",
+        "morph_btn_pause": "❚❚ Pause",
+        "morph_grp_export": "4. C++ Export Format",
+        "morph_radio_block": "Big Block (um array gigante)",
+        "morph_radio_seq": "Instrument Sequence (ponteiros)",
+        "morph_chk_instrument": "Gerar struct Instrument completa",
     },
     "en": {
-        "window_title": "Wavetable Maker for ESP32Synth (FM Edition)",
+        "window_title": "Wavetable Maker for ESP32Synth (Ultimate Edition)",
         "config_box": "Wavetable Settings",
         "name_lbl": "Name:",
         "size_lbl": "Size:",
@@ -52,7 +88,8 @@ TRANSLATIONS = {
         "bits_4": "4-bit (Glitch/Lo-Fi)",
         "tab_formula": "Formula",
         "tab_additive": "Additive",
-        "tab_fm": "FM Synthesis (4-Op)",
+        "tab_fm": "FM Synthesis",
+        "tab_filters": "Filters & FX",
         "math_func": "Math Function (numpy):",
         "tip_formula": "Tip: Use 'x' for angle (0 to 2pi).",
         "reset_add": "Reset Additive",
@@ -67,6 +104,37 @@ TRANSLATIONS = {
         "op_ratio": "Ratio",
         "op_level": "Level",
         "op_detune": "Detune",
+        "filter_type": "Effect Type:",
+        "filter_p1": "Parameter 1 (Cutoff/Drive):",
+        "filter_p2": "Parameter 2 (Res/Mix):",
+        "btn_apply": "Apply Effect",
+        "btn_undo": "Undo",
+        "fx_lp": "Low Pass (FFT)",
+        "fx_hp": "High Pass (FFT)",
+        "fx_bp": "Band Pass (FFT)",
+        "fx_notch": "Notch (FFT)",
+        "fx_fold": "Wave Folder (Distortion)",
+        "fx_sat": "Saturation (Soft Clip)",
+        "fx_redux": "Sample Rate Redux",
+        "fx_norm": "Normalize (Max Vol)",
+        # Morph Tab
+        "tab_morph": "Morph / Animation",
+        "morph_grp_capture": "1. Keyframe Capture",
+        "morph_btn_capture": "📸 Capture Current Frame (Snapshot)",
+        "morph_btn_up": "▲",
+        "morph_btn_down": "▼",
+        "morph_btn_dup": "Duplicate",
+        "morph_btn_del": "Delete",
+        "morph_btn_update": "Update Frame",
+        "morph_grp_engine": "2. Animation Generation",
+        "morph_lbl_anim_size": "Final Animation Frames:",
+        "morph_btn_gen": "Generate Animation (Morph)",
+        "morph_grp_preview": "3. Animation Preview",
+        "morph_btn_play": "▶ Play",
+        "morph_btn_pause": "❚❚ Pause",
+        "morph_grp_export": "4. C++ Export Format",
+        "morph_radio_block": "Big Block (one giant array)",
+        "morph_radio_seq": "Instrument Sequence (pointers)",
     }
 }
 
@@ -121,11 +189,11 @@ class WaveformDisplay(QWidget):
 
     def __init__(self):
         super().__init__()
-        self.setMinimumHeight(250) # Altura mínima
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding) # Auto-Resize
+        self.setMinimumHeight(250) 
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         
-        self.raw_data = np.zeros(256) 
-        self.display_data = np.zeros(256) 
+        self.source_data = np.zeros(256) 
+        self.processed_data = np.zeros(256) 
         self.is_drawing = False
         self.draw_mode = "manual" 
         self.last_draw_pos = None 
@@ -135,9 +203,9 @@ class WaveformDisplay(QWidget):
         self.setBackgroundRole(QPalette.ColorRole.Base)
         self.setAutoFillBackground(True)
 
-    def setData(self, data, processed_data):
-        self.raw_data = data
-        self.display_data = processed_data
+    def setData(self, source, processed):
+        self.source_data = source
+        self.processed_data = processed
         self.update()
 
     def mousePressEvent(self, event):
@@ -158,7 +226,7 @@ class WaveformDisplay(QWidget):
         if event.button() == Qt.MouseButton.LeftButton:
             self.is_drawing = False
             self.last_draw_pos = None
-            self.dataEdited.emit(self.raw_data)
+            self.dataEdited.emit(self.source_data)
 
     def interpolate_draw(self, p1, p2):
         if p1 is None: p1 = p2
@@ -175,12 +243,14 @@ class WaveformDisplay(QWidget):
     def apply_draw_at(self, pos):
         w, h = self.width(), self.height()
         if w == 0: return
-        idx = int((pos.x() / w) * len(self.raw_data))
-        val = 1.0 - (pos.y() / (h / 2.0))
-        idx = max(0, min(idx, len(self.raw_data) - 1))
+        idx = int((pos.x() / w) * len(self.source_data))
+        val = 1.0 - (pos.y() / (h / 2.0)) # Y invertido
         val = max(-1.0, min(val, 1.0))
-        self.raw_data[idx] = val
-        self.display_data[idx] = val 
+        idx = max(0, min(idx, len(self.source_data) - 1))
+        
+        # Modifica o source e o processed para feedback visual imediato
+        self.source_data[idx] = val
+        self.processed_data[idx] = val 
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -190,27 +260,26 @@ class WaveformDisplay(QWidget):
         mid_y = self.height() / 2
         painter.drawLine(0, int(mid_y), self.width(), int(mid_y))
         
-        if len(self.display_data) < 2: return
+        if len(self.processed_data) < 2: return
 
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         path = QPainterPath()
         w = self.width()
         scale_y = (self.height() / 2) * 0.90 
-        step_x = w / len(self.display_data)
+        step_x = w / len(self.processed_data)
 
-        start_y = mid_y - (self.display_data[0] * scale_y)
+        start_y = mid_y - (self.processed_data[0] * scale_y)
         path.moveTo(0, start_y)
         
-        for i in range(len(self.display_data)):
+        for i in range(1, len(self.processed_data)):
             x = i * step_x
-            y = mid_y - (self.display_data[i] * scale_y)
-            if i == 0: path.moveTo(x, y)
-            else: path.lineTo(x, y)
-            path.lineTo(x + step_x, y)
+            y = mid_y - (self.processed_data[i] * scale_y)
+            path.lineTo(x, y)
 
         path_fill = QPainterPath(path)
         path_fill.lineTo(w, mid_y)
         path_fill.lineTo(0, mid_y)
+        path_fill.closeSubpath()
         painter.setBrush(QBrush(self.color_fill))
         painter.setPen(Qt.PenStyle.NoPen)
         painter.drawPath(path_fill)
@@ -220,20 +289,18 @@ class WaveformDisplay(QWidget):
         painter.drawPath(path)
         
         painter.setPen(QColor("#888"))
-        painter.drawText(10, 20, f"Samples: {len(self.display_data)}")
+        painter.drawText(10, 20, f"Samples: {len(self.processed_data)}")
 
-# --- WIDGET AUXILIAR PARA OPERADOR FM ---
+# --- WIDGET FM ---
 class FMOperatorWidget(QGroupBox):
     valueChanged = pyqtSignal()
     
     def __init__(self, index, parent=None):
         super().__init__(f"Operator {index}", parent)
-        self.index = index
         self.layout = QGridLayout(self)
         self.layout.setContentsMargins(5, 5, 5, 5)
         self.layout.setSpacing(5)
 
-        # Ratio (Frequência)
         self.lbl_ratio = QLabel("Ratio")
         self.spin_ratio = QDoubleSpinBox()
         self.spin_ratio.setRange(0.0, 32.0)
@@ -241,14 +308,12 @@ class FMOperatorWidget(QGroupBox):
         self.spin_ratio.setValue(1.0)
         self.spin_ratio.valueChanged.connect(self.valueChanged.emit)
 
-        # Level (Volume)
         self.lbl_level = QLabel("Level")
         self.slider_level = QSlider(Qt.Orientation.Horizontal)
         self.slider_level.setRange(0, 100)
-        self.slider_level.setValue(100 if index == 1 else 0) # Op 1 ativo por padrão
+        self.slider_level.setValue(100 if index == 1 else 0) 
         self.slider_level.valueChanged.connect(self.valueChanged.emit)
 
-        # Detune
         self.lbl_detune = QLabel("Detune")
         self.spin_detune = QDoubleSpinBox()
         self.spin_detune.setRange(-5.0, 5.0)
@@ -256,12 +321,10 @@ class FMOperatorWidget(QGroupBox):
         self.spin_detune.setValue(0.0)
         self.spin_detune.valueChanged.connect(self.valueChanged.emit)
 
-        # Layout
         self.layout.addWidget(self.lbl_ratio, 0, 0)
         self.layout.addWidget(self.spin_ratio, 0, 1)
         self.layout.addWidget(self.lbl_detune, 0, 2)
         self.layout.addWidget(self.spin_detune, 0, 3)
-        
         self.layout.addWidget(self.lbl_level, 1, 0)
         self.layout.addWidget(self.slider_level, 1, 1, 1, 3)
 
@@ -272,7 +335,7 @@ class FMOperatorWidget(QGroupBox):
             "detune": self.spin_detune.value()
         }
 
-# --- WIDGET DE PIANO ---
+# --- PIANO ---
 class PianoWidget(QWidget):
     noteOn = pyqtSignal(int)
     noteOff = pyqtSignal()
@@ -294,7 +357,6 @@ class PianoWidget(QWidget):
         key_w = w / num_whites
         whites = [0, 2, 4, 5, 7, 9, 11]
         
-        # Teclas Brancas
         for i in range(num_whites):
             x = i * key_w
             note_idx = (i // 7) * 12 + whites[i % 7]
@@ -307,7 +369,6 @@ class PianoWidget(QWidget):
                 octave_num = (self.start_note // 12) + (i // 7)
                 p.drawText(r.adjusted(0,0,0,-5), Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignHCenter, f"C{octave_num}")
 
-        # Teclas Pretas
         b_w, b_h = key_w * 0.6, h * 0.6
         for i in range(num_whites):
             if (i % 7) in [0, 1, 3, 4, 5]: 
@@ -357,6 +418,77 @@ class PianoWidget(QWidget):
         self.update()
 
 # --- JANELA PRINCIPAL ---
+class SliderGroup(QGroupBox):
+    """Um grupo de widgets com Slider, SpinBoxes para range e um label."""
+    valueChanged = pyqtSignal()
+
+    def __init__(self, title="Parâmetro", min_val=0.0, max_val=1.0, initial_val=0.5, parent=None):
+        super().__init__(title, parent)
+        self.layout = QGridLayout(self)
+        self.layout.setContentsMargins(5, 5, 5, 5)
+        self.layout.setSpacing(5)
+
+        self.slider = QSlider(Qt.Orientation.Horizontal)
+        self.slider.setRange(0, 1000)
+        self.slider.valueChanged.connect(self.valueChanged.emit)
+
+        self.spin_min = QDoubleSpinBox()
+        self.spin_min.setRange(-1000.0, 1000.0)
+        self.spin_min.setSingleStep(0.1)
+        self.spin_min.setDecimals(2)
+        self.spin_min.setFixedWidth(70)
+        self.spin_min.valueChanged.connect(self.update_slider_from_spins)
+
+        self.spin_max = QDoubleSpinBox()
+        self.spin_max.setRange(-1000.0, 1000.0)
+        self.spin_max.setSingleStep(0.1)
+        self.spin_max.setDecimals(2)
+        self.spin_max.setFixedWidth(70)
+        self.spin_max.valueChanged.connect(self.update_slider_from_spins)
+
+        self.lbl_val = QLabel("0.00")
+        self.lbl_val.setFixedWidth(40)
+        self.lbl_val.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+
+        self.layout.addWidget(QLabel("Min:"), 0, 0)
+        self.layout.addWidget(self.spin_min, 0, 1)
+        self.layout.addWidget(QLabel("Max:"), 0, 2)
+        self.layout.addWidget(self.spin_max, 0, 3)
+        self.layout.addWidget(self.slider, 1, 0, 1, 4)
+        self.layout.addWidget(self.lbl_val, 0, 4)
+        
+        self.set_range(min_val, max_val)
+        self.set_value(initial_val)
+        
+        self.slider.valueChanged.connect(self.update_label)
+
+    def set_range(self, min_val, max_val):
+        self.spin_min.setValue(min_val)
+        self.spin_max.setValue(max_val)
+
+    def set_value(self, val):
+        min_val, max_val = self.spin_min.value(), self.spin_max.value()
+        if max_val > min_val:
+            slider_val = int(1000 * (val - min_val) / (max_val - min_val))
+            self.slider.setValue(slider_val)
+
+    def get_value(self):
+        min_val, max_val = self.spin_min.value(), self.spin_max.value()
+        return min_val + (self.slider.value() / 1000.0) * (max_val - min_val)
+
+    def update_slider_from_spins(self):
+        # Garante que min < max
+        if self.spin_min.value() >= self.spin_max.value():
+            self.spin_max.setValue(self.spin_min.value() + 0.01)
+        self.valueChanged.emit()
+    
+    def update_label(self):
+        self.lbl_val.setText(f"{self.get_value():.2f}")
+
+    def set_title(self, title):
+        self.setTitle(title)
+        
+# --- JANELA PRINCIPAL ---
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -365,8 +497,18 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(1200, 800)
         
         self.audio = AudioEngine()
-        self.raw_data = np.zeros(256) 
         
+        self.source_data = np.zeros(256)      # Onda original (float -1 a 1)
+        self.processed_data = np.zeros(256)   # Onda com filtros (float -1 a 1)
+        self.undo_stack = []                  # Histórico de source_data
+        
+        # --- NOVAS VARIÁVEIS PARA ANIMAÇÃO ---
+        self.animation_keyframes = []         # Lista de tuples (nome, np.ndarray)
+        self.animation_frames = []            # Lista de np.ndarray com todos os frames interpolados
+        self.animation_timer = QTimer(self)   # Timer para playback
+        self.animation_timer.setInterval(33)  # ~30 FPS
+        # ------------------------------------
+
         self.current_bit_depth = 8 
         self.table_size = 256
         
@@ -375,6 +517,9 @@ class MainWindow(QMainWindow):
         self.update_texts() 
         
         self.generate_formula("sin(x)")
+        # Conecta o botão de undo global
+        self.btn_undo.clicked.connect(self.undo_last)
+
 
     def init_ui(self):
         main_widget = QWidget()
@@ -383,8 +528,11 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(10)
 
-        # 0. BOTÃO DE IDIOMA
+        # 0. BARRA SUPERIOR
         top_bar = QHBoxLayout()
+        self.btn_undo = QPushButton("Desfazer")
+        self.btn_undo.setFixedWidth(100)
+        top_bar.addWidget(self.btn_undo)
         top_bar.addStretch()
         self.btn_lang = QPushButton()
         self.btn_lang.setFixedWidth(120)
@@ -420,7 +568,6 @@ class MainWindow(QMainWindow):
         
         # --- PAINEL ESQUERDO (FERRAMENTAS) ---
         self.tabs = QTabWidget()
-        # Define largura fixa para painel esquerdo, permitindo o direito expandir
         self.tabs.setFixedWidth(420)
         
         # Tab 1: Fórmula
@@ -438,7 +585,7 @@ class MainWindow(QMainWindow):
                    ("Pulse 10%", "where((x%(2*pi))<(0.2*pi), 1, -1)"), ("Noise", "random(sz)*2-1")]
         for i, (name, func) in enumerate(presets):
             btn = QPushButton(name)
-            btn.clicked.connect(lambda _, f=func: (self.txt_formula.setText(f), self.generate_formula(f)))
+            btn.clicked.connect(lambda _, f=func: self._set_formula_and_generate(f))
             btn_presets_form.addWidget(btn, i//2, i%2)
         l_form.addLayout(btn_presets_form)
         self.lbl_tip = QLabel("Tip")
@@ -474,25 +621,14 @@ class MainWindow(QMainWindow):
         l_add.addWidget(self.btn_reset_add)
         self.tabs.addTab(tab_add, "Aditiva")
 
-        # --- NOVA TAB 3: SÍNTESE FM ---
+        # Tab 3: Síntese FM
         tab_fm = QWidget()
         l_fm = QVBoxLayout(tab_fm)
-        
-        # Seleção de Algoritmo
         h_algo = QHBoxLayout()
         self.lbl_algo = QLabel("Algoritmo:")
         h_algo.addWidget(self.lbl_algo)
         self.cb_algo = QComboBox()
-        self.algos_desc = [
-            "1: Stack (4->3->2->1)",
-            "2: 3 Mod 1, 4 Mod 2 (Pairs)",
-            "3: 4->3->1, 2->1",
-            "4: 4->3, 2, 1 (3 Carriers)",
-            "5: 4->1, 3->1, 2->1 (Fan)",
-            "6: 4->(3+2+1) (Broad)",
-            "7: Additive (All Out)",
-            "8: 4->3->2, 1 Out"
-        ]
+        self.algos_desc = ["1: Stack", "2: Pairs", "3: Branch", "4: 3 Carriers", "5: Fan", "6: Broad", "7: Additive", "8: Separate"]
         self.cb_algo.addItems(self.algos_desc)
         self.cb_algo.currentIndexChanged.connect(self.generate_fm)
         h_algo.addWidget(self.cb_algo)
@@ -502,20 +638,16 @@ class MainWindow(QMainWindow):
         self.lbl_algo_visual.setStyleSheet("color: #aaa; font-style: italic;")
         l_fm.addWidget(self.lbl_algo_visual)
 
-        # Scroll para os 4 Operadores
         fm_scroll = QScrollArea()
         fm_scroll.setWidgetResizable(True)
         w_fm_scroll = QWidget()
         l_fm_ops = QVBoxLayout(w_fm_scroll)
-        
         self.ops_widgets = []
-        for i in range(4): # Operadores 1 a 4
+        for i in range(4): 
             op = FMOperatorWidget(i + 1)
             op.valueChanged.connect(self.generate_fm)
             l_fm_ops.addWidget(op)
             self.ops_widgets.append(op)
-        
-        # Feedback Global (geralmente no Op 4)
         grp_fb = QGroupBox("Feedback (Op 4)")
         l_fb = QHBoxLayout(grp_fb)
         self.lbl_feedback = QLabel("Amt:")
@@ -525,25 +657,122 @@ class MainWindow(QMainWindow):
         l_fb.addWidget(self.lbl_feedback)
         l_fb.addWidget(self.slider_feedback)
         l_fm_ops.addWidget(grp_fb)
-
         fm_scroll.setWidget(w_fm_scroll)
         l_fm.addWidget(fm_scroll)
+        self.tabs.addTab(tab_fm, "FM")
         
-        self.tabs.addTab(tab_fm, "FM (4-Op)")
+        # --- TAB 4: FILTROS E EFEITOS (REFEITO) ---
+        tab_filters = QWidget()
+        l_filt = QVBoxLayout(tab_filters)
         
+        self.lbl_filter_type = QLabel("Tipo de Efeito:")
+        l_filt.addWidget(self.lbl_filter_type)
+        self.cb_filter_type = QComboBox()
+        self.filter_keys = ["lp", "hp", "bp", "notch", "fold", "sat", "redux", "norm"]
+        self.cb_filter_type.addItems(["Low Pass", "High Pass", "Band Pass", "Notch", "Wave Folder", "Saturation", "Redux/Bitcrush", "Normalize"])
+        self.cb_filter_type.currentIndexChanged.connect(self._on_filter_type_change)
+        l_filt.addWidget(self.cb_filter_type)
+        
+        l_filt.addSpacing(10)
+
+        self.sl_fp1 = SliderGroup("P1", 0.0, 1.0, 0.5)
+        self.sl_fp1.valueChanged.connect(self._update_filters_and_viz)
+        l_filt.addWidget(self.sl_fp1)
+        
+        self.sl_fp2 = SliderGroup("P2", 0.0, 1.0, 0.0)
+        self.sl_fp2.valueChanged.connect(self._update_filters_and_viz)
+        l_filt.addWidget(self.sl_fp2)
+        
+        self.sl_fp3 = SliderGroup("P3", 0.0, 1.0, 0.0)
+        self.sl_fp3.valueChanged.connect(self._update_filters_and_viz)
+        l_filt.addWidget(self.sl_fp3)
+        
+        l_filt.addStretch()
+        self.tabs.addTab(tab_filters, "Filtros")
+
+        # --- TAB 5: MORPH / ANIMATION ---
+        tab_morph = QWidget()
+        l_morph = QVBoxLayout(tab_morph)
+
+        # 1. Workflow de "Snapshot"
+        self.grp_snapshot = QGroupBox("1. Captura de Keyframes")
+        l_snapshot = QVBoxLayout(self.grp_snapshot)
+        self.btn_capture_frame = QPushButton("📸 Capturar Frame Atual (Snapshot)")
+        l_snapshot.addWidget(self.btn_capture_frame)
+        
+        self.list_keyframes = QListWidget()
+        self.list_keyframes.setDragDropMode(QListWidget.DragDropMode.InternalMove)
+        l_snapshot.addWidget(self.list_keyframes)
+
+        l_keyframe_btns = QHBoxLayout()
+        self.btn_kf_up = QPushButton("▲")
+        self.btn_kf_down = QPushButton("▼")
+        self.btn_kf_dup = QPushButton("Duplicar")
+        self.btn_kf_del = QPushButton("Excluir")
+        self.btn_kf_update = QPushButton("Atualizar Frame")
+        l_keyframe_btns.addWidget(self.btn_kf_up)
+        l_keyframe_btns.addWidget(self.btn_kf_down)
+        l_keyframe_btns.addStretch()
+        l_keyframe_btns.addWidget(self.btn_kf_dup)
+        l_keyframe_btns.addWidget(self.btn_kf_update)
+        l_keyframe_btns.addWidget(self.btn_kf_del)
+        l_snapshot.addLayout(l_keyframe_btns)
+        l_morph.addWidget(self.grp_snapshot)
+
+        # 2. O Motor de Animação
+        self.grp_engine = QGroupBox("2. Geração da Animação")
+        l_engine = QGridLayout(self.grp_engine)
+        self.lbl_anim_size = QLabel("Frames da Animação Final:")
+        self.spin_anim_size = QSpinBox()
+        self.spin_anim_size.setRange(2, 8192)
+        self.spin_anim_size.setValue(64)
+        self.btn_generate_morph = QPushButton("Gerar Animação (Morph)")
+        l_engine.addWidget(self.lbl_anim_size, 0, 0)
+        l_engine.addWidget(self.spin_anim_size, 0, 1)
+        l_engine.addWidget(self.btn_generate_morph, 1, 0, 1, 2)
+        l_morph.addWidget(self.grp_engine)
+        
+        # 3. Visualização e Playback
+        self.grp_preview = QGroupBox("3. Preview da Animação")
+        l_preview = QGridLayout(self.grp_preview)
+        self.slider_anim_preview = QSlider(Qt.Orientation.Horizontal)
+        self.slider_anim_preview.setRange(0, 0)
+        self.slider_anim_preview.setEnabled(False)
+        self.btn_anim_play = QPushButton("▶ Play")
+        self.btn_anim_play.setCheckable(True)
+        self.btn_anim_play.setEnabled(False)
+        self.lbl_anim_frame_count = QLabel("0 / 0")
+        l_preview.addWidget(self.slider_anim_preview, 0, 0, 1, 2)
+        l_preview.addWidget(self.lbl_anim_frame_count, 1, 0)
+        l_preview.addWidget(self.btn_anim_play, 1, 1)
+        l_morph.addWidget(self.grp_preview)
+
+        # 4. Exportação
+        self.grp_export = QGroupBox("4. Formato de Exportação C++")
+        l_export = QVBoxLayout(self.grp_export)
+        self.radio_export_block = QRadioButton("Big Block (um array gigante)")
+        self.radio_export_seq = QRadioButton("Instrument Sequence (ponteiros)")
+        self.radio_export_block.setChecked(True)
+        self.check_generate_instrument = QCheckBox("Gerar struct Instrument completa")
+        l_export.addWidget(self.radio_export_block)
+        l_export.addWidget(self.radio_export_seq)
+        l_export.addWidget(self.check_generate_instrument)
+        l_morph.addWidget(self.grp_export)
+
+        l_morph.addStretch()
+        self.tabs.addTab(tab_morph, "Morph / Animação")
+
         splitter.addWidget(self.tabs)
 
-        # --- PAINEL DIREITO (VISUALIZADOR E CÓDIGO) ---
+        # --- PAINEL DIREITO ---
         right_panel = QWidget()
         r_layout = QVBoxLayout(right_panel)
         r_layout.setContentsMargins(0,0,0,0)
         
         self.viz = WaveformDisplay()
         self.viz.dataEdited.connect(self.on_manual_draw)
-        # Importante: Permite que o visualizador expanda
         r_layout.addWidget(self.viz, 3) 
         
-        # Piano Controls
         piano_ctrl_layout = QHBoxLayout()
         self.lbl_piano = QLabel("Piano:")
         piano_ctrl_layout.addWidget(self.lbl_piano)
@@ -566,18 +795,107 @@ class MainWindow(QMainWindow):
         self.code_viewer = QPlainTextEdit()
         self.code_viewer.setFont(QFont("Consolas", 10))
         self.code_viewer.setReadOnly(True)
-        # Código com fator de estiramento menor
-        r_layout.addWidget(self.code_viewer, 1) 
+        r_layout.addWidget(self.code_viewer, 1)
         
         splitter.addWidget(right_panel)
-        
-        # Configura o splitter para dar prioridade ao painel direito
-        splitter.setStretchFactor(0, 0) # Painel esquerdo fixo
-        splitter.setStretchFactor(1, 1) # Painel direito expande
-        
+        splitter.setStretchFactor(0, 0) 
+        splitter.setStretchFactor(1, 1) 
         layout.addWidget(splitter)
+        
+        self._on_filter_type_change() # Config inicial dos sliders
 
-    # --- LÓGICA DE TRADUÇÃO ---
+        # --- CONEXÕES DA ABA DE ANIMAÇÃO ---
+        self.btn_capture_frame.clicked.connect(self.capture_keyframe)
+        self.btn_kf_del.clicked.connect(self.delete_keyframe)
+        self.btn_kf_update.clicked.connect(self.update_keyframe)
+        self.btn_kf_dup.clicked.connect(self.duplicate_keyframe)
+        self.btn_kf_up.clicked.connect(self.move_keyframe_up)
+        self.btn_kf_down.clicked.connect(self.move_keyframe_down)
+
+        self.btn_generate_morph.clicked.connect(self.generate_morph)
+        self.slider_anim_preview.valueChanged.connect(self.preview_animation_frame)
+        self.btn_anim_play.toggled.connect(self.toggle_animation_playback)
+        self.animation_timer.timeout.connect(self.animation_step)
+        
+        # Atualiza o estado dos botões com base na seleção da lista
+        self.list_keyframes.currentItemChanged.connect(self.update_keyframe_button_states)
+        self.list_keyframes.model().rowsMoved.connect(self.reorder_keyframes_from_drag)
+        self.update_keyframe_button_states()
+
+    # --- LÓGICA DE TRADUÇÃO E UI ---
+    def _set_formula_and_generate(self, f):
+        self.txt_formula.setText(f)
+        self.generate_formula(f)
+
+    def _on_filter_type_change(self):
+        key = self.filter_keys[self.cb_filter_type.currentIndex()]
+        
+        # Esconde todos os sliders
+        self.sl_fp1.setVisible(True)
+        self.sl_fp2.setVisible(True)
+        self.sl_fp3.setVisible(True)
+
+        if key in ["lp", "hp"]:
+            self.sl_fp1.set_title("Cutoff Freq")
+            self.sl_fp1.set_range(0.0, self.table_size / 2)
+            self.sl_fp1.set_value(self.table_size / 4)
+            
+            self.sl_fp2.set_title("Q / Resonance")
+            self.sl_fp2.set_range(1.0, 20.0)
+            self.sl_fp2.set_value(1.0)
+            
+            self.sl_fp3.set_title("Slope")
+            self.sl_fp3.set_range(1, 8)
+            self.sl_fp3.set_value(1)
+
+        elif key in ["bp", "notch"]:
+            self.sl_fp1.set_title("Cutoff Freq")
+            self.sl_fp1.set_range(0.0, self.table_size / 2)
+            self.sl_fp1.set_value(self.table_size / 4)
+            
+            self.sl_fp2.set_title("Width")
+            self.sl_fp2.set_range(0.1, self.table_size / 4)
+            self.sl_fp2.set_value(10.0)
+            
+            self.sl_fp3.setVisible(False)
+        elif key == "fold":
+            self.sl_fp1.set_title("Drive")
+            self.sl_fp1.set_range(1.0, 20.0)
+            self.sl_fp1.set_value(5.0)
+
+            self.sl_fp2.set_title("Mix")
+            self.sl_fp2.set_range(0.0, 1.0)
+            self.sl_fp2.set_value(1.0)
+            
+            self.sl_fp3.setVisible(False)
+        elif key == "sat":
+            self.sl_fp1.set_title("Drive")
+            self.sl_fp1.set_range(1.0, 20.0)
+            self.sl_fp1.set_value(3.0)
+
+            self.sl_fp2.set_title("Mix")
+            self.sl_fp2.set_range(0.0, 1.0)
+            self.sl_fp2.set_value(1.0)
+
+            self.sl_fp3.setVisible(False)
+        elif key == "redux":
+            self.sl_fp1.set_title("Sample Rate")
+            self.sl_fp1.set_range(1, self.table_size / 2)
+            self.sl_fp1.set_value(self.table_size / 4)
+            
+            self.sl_fp2.set_title("Bit Depth")
+            self.sl_fp2.set_range(2, 16)
+            self.sl_fp2.set_value(16)
+            
+            self.sl_fp3.setVisible(False)
+        else: # norm
+            self.sl_fp1.setVisible(False)
+            self.sl_fp2.setVisible(False)
+            self.sl_fp3.setVisible(False)
+            
+        self._update_filters_and_viz()
+
+
     def toggle_language(self):
         self.cur_lang = "en" if self.cur_lang == "pt" else "pt"
         self.update_texts()
@@ -598,7 +916,26 @@ class MainWindow(QMainWindow):
         
         self.tabs.setTabText(0, t["tab_formula"])
         self.tabs.setTabText(1, t["tab_additive"])
-        self.tabs.setTabText(2, t["tab_fm"]) # FM
+        self.tabs.setTabText(2, t["tab_fm"])
+        self.tabs.setTabText(3, t["tab_filters"])
+        self.tabs.setTabText(4, t["tab_morph"])
+        
+        # Textos da aba de Morph
+        self.grp_snapshot.setTitle(t["morph_grp_capture"])
+        self.btn_capture_frame.setText(t["morph_btn_capture"])
+        self.btn_kf_dup.setText(t["morph_btn_dup"])
+        self.btn_kf_del.setText(t["morph_btn_del"])
+        self.btn_kf_update.setText(t["morph_btn_update"])
+        self.grp_engine.setTitle(t["morph_grp_engine"])
+        self.lbl_anim_size.setText(t["morph_lbl_anim_size"])
+        self.btn_generate_morph.setText(t["morph_btn_gen"])
+        self.grp_preview.setTitle(t["morph_grp_preview"])
+        self.btn_anim_play.setText(t["morph_btn_play"] if not self.btn_anim_play.isChecked() else t["morph_btn_pause"])
+        self.grp_export.setTitle(t["morph_grp_export"])
+        self.radio_export_block.setText(t["morph_radio_block"])
+        self.radio_export_seq.setText(t["morph_radio_seq"])
+        self.check_generate_instrument.setText(t["morph_chk_instrument"])
+
         self.lbl_math.setText(t["math_func"])
         self.lbl_tip.setText(t["tip_formula"])
         self.btn_reset_add.setText(t["reset_add"])
@@ -606,8 +943,8 @@ class MainWindow(QMainWindow):
         self.lbl_piano.setText(t["piano_header"])
         self.lbl_octave.setText(t["octave_lbl"])
         self.btn_lang.setText(t["btn_lang"])
+        self.btn_undo.setText(t["btn_undo"])
         
-        # Traduz widgets FM
         self.lbl_algo.setText(t["fm_algo"])
         self.lbl_feedback.setText(t["fm_feedback"])
         for op in self.ops_widgets:
@@ -615,10 +952,171 @@ class MainWindow(QMainWindow):
             op.lbl_level.setText(t["op_level"])
             op.lbl_detune.setText(t["op_detune"])
 
+        self.lbl_filter_type.setText(t["filter_type"])
+        self._on_filter_type_change() # Atualiza nomes dos sliders
+
+        idx_f = self.cb_filter_type.currentIndex()
+        self.cb_filter_type.clear()
+        self.cb_filter_type.addItems([
+            t["fx_lp"], t["fx_hp"], t["fx_bp"], t["fx_notch"], 
+            t["fx_fold"], t["fx_sat"], t["fx_redux"], t["fx_norm"]
+        ])
+        self.cb_filter_type.setCurrentIndex(idx_f)
         self.update_code()
 
-    # --- LÓGICA DE DADOS ---
-    def process_data_to_bits(self, data):
+    # --- LÓGICA DE DADOS E PROCESSAMENTO ---
+    def _update_source_data(self, new_data):
+        """Função central para atualizar a onda de origem."""
+        self.push_undo()
+        self.source_data = np.copy(new_data)
+        self.viz.draw_mode = "manual" # Permitir desenho após gerar
+        self._update_filters_and_viz()
+
+    def _update_filters_and_viz(self):
+        """Aplica filtros e atualiza a UI."""
+        self._apply_filters()
+        self.update_viz_and_code()
+
+    def push_undo(self):
+        if len(self.undo_stack) > 20: self.undo_stack.pop(0)
+        self.undo_stack.append(np.copy(self.source_data))
+
+    def undo_last(self):
+        if self.undo_stack:
+            self.source_data = self.undo_stack.pop()
+            self._update_filters_and_viz()
+
+    def _apply_filters(self):
+        """Aplica o filtro selecionado ao self.source_data -> self.processed_data."""
+        p1 = self.sl_fp1.get_value()
+        p2 = self.sl_fp2.get_value()
+        p3 = self.sl_fp3.get_value()
+        
+        key = self.filter_keys[self.cb_filter_type.currentIndex()]
+        
+        data = np.copy(self.source_data)
+        sz = len(data)
+
+        if key in ["lp", "hp", "bp", "notch"]:
+            spectrum = np.fft.rfft(data)
+            freqs = np.fft.rfftfreq(sz, 1/sz)
+            mag = np.abs(spectrum)
+            phase = np.angle(spectrum)
+            
+            cutoff = p1
+            
+            mask = np.ones_like(mag)
+            
+            if key == "lp":
+                slope = int(p3)
+                q = p2
+                cutoff_idx = int(cutoff)
+                # Cria uma transição suave
+                transition_width = max(2, sz // 64) 
+                x = np.linspace(-1, 1, transition_width)
+                sigmoid = 1 / (1 + np.exp(slope * 5 * x))
+                
+                if cutoff_idx < len(mask):
+                    start = max(0, cutoff_idx - transition_width//2)
+                    end = min(len(mask), cutoff_idx + transition_width//2)
+                    mask_len = end - start
+                    if mask_len > 0:
+                         mask[start:end] = np.interp(np.arange(mask_len), [0, mask_len-1], [1, 0])
+                    mask[end:] = 0.0
+
+                if q > 1.0 and cutoff_idx > 0 and cutoff_idx < len(mask):
+                    res_width = max(1, int( (sz/2) / (cutoff * q * 0.5) ) )
+                    res_start = max(0, cutoff_idx - res_width)
+                    res_end = min(len(mask), cutoff_idx + 1)
+                    mask[res_start:res_end] = np.linspace(1.0, q, res_end - res_start)
+
+                if slope > 1:
+                    mask = np.power(mask, slope)
+
+            elif key == "hp":
+                slope = int(p3)
+                q = p2
+                cutoff_idx = int(cutoff)
+                
+                transition_width = max(2, sz // 64) 
+                x = np.linspace(-1, 1, transition_width)
+                sigmoid = 1 / (1 + np.exp(-slope * 5 * x))
+
+                if cutoff_idx < len(mask):
+                    start = max(0, cutoff_idx - transition_width//2)
+                    end = min(len(mask), cutoff_idx + transition_width//2)
+                    mask_len = end - start
+                    if mask_len > 0:
+                        mask[start:end] = np.interp(np.arange(mask_len), [0, mask_len-1], [0, 1])
+                    mask[:start] = 0.0
+
+                if q > 1.0 and cutoff_idx < len(mask):
+                    res_width = max(1, int( (sz/2) / (cutoff * q * 0.5) ))
+                    res_start = cutoff_idx
+                    res_end = min(len(mask), cutoff_idx + res_width)
+                    if res_end > res_start:
+                      mask[res_start:res_end] = np.linspace(q, 1.0, res_end - res_start)
+
+                if slope > 1:
+                    mask = np.power(mask, slope)
+
+            elif key == "bp":
+                width = p2
+                low = max(0, int(cutoff - width/2))
+                high = int(cutoff + width/2)
+                mask[:low] = 0.0
+                mask[high:] = 0.0
+                mask[low:high] *= (1.0 + p2*0.1) # Usa P2 como 'ressonância' de ganho
+            elif key == "notch":
+                width = p2
+                low = max(0, int(cutoff - width/2))
+                high = min(len(mask), int(cutoff + width/2))
+                mask[low:high] = 0.0
+
+            new_mag = mag * mask
+            new_spectrum = new_mag * np.exp(1j * phase)
+            data = np.fft.irfft(new_spectrum, n=sz)
+
+        elif key == "fold":
+            drive = p1
+            mix = p2
+            folded = np.sin(data * drive)
+            data = (1.0 - mix) * data + mix * folded
+
+        elif key == "sat":
+            drive = p1
+            mix = p2
+            saturated = np.tanh(data * drive)
+            # Normaliza o sinal saturado antes de mixar para evitar queda de volume
+            mx = np.max(np.abs(saturated))
+            if mx > 0: saturated /= mx
+            data = (1.0 - mix) * data + mix * saturated
+            
+        elif key == "redux":
+            # Sample rate reduction
+            steps = int(p1)
+            for i in range(0, sz, steps):
+                val = data[i]
+                end = min(i + steps, sz)
+                data[i:end] = val
+            
+            # Bit depth reduction
+            bits = int(p2)
+            if bits < 16:
+                levels = 2 ** bits
+                data = np.round(data * (levels / 2)) / (levels / 2)
+
+        if key != "norm":
+            mx = np.max(np.abs(data))
+            if mx > 0: data /= mx
+        else: # Normalize
+            mx = np.max(np.abs(data))
+            if mx > 0: data /= mx
+        
+        self.processed_data = data
+
+    def process_data_to_quantized_display(self, data):
+        """Retorna uma versão quantizada para exibição, mas ainda float."""
         if self.current_bit_depth == 16:
             return data 
         elif self.current_bit_depth == 8:
@@ -626,67 +1124,65 @@ class MainWindow(QMainWindow):
             return (data_u8.astype(float) / 127.5) - 1.0
         elif self.current_bit_depth == 4:
             steps = 15.0
-            data_u4 = ((data + 1.0) * (steps / 2.0)).clip(0, steps).astype(np.uint8)
-            return (data_u4.astype(float) / (steps / 2.0)) - 1.0
+            data_u4 = np.round(((data + 1.0) / 2.0) * steps)
+            return (data_u4 / (steps / 2.0)) - 1.0
         return data
 
     def update_viz_and_code(self):
-        processed = self.process_data_to_bits(self.raw_data)
-        self.viz.setData(self.raw_data, processed)
+        display_data = self.process_data_to_quantized_display(self.processed_data)
+        self.viz.setData(self.source_data, display_data)
         self.update_code()
 
     def change_size(self):
         new_size = int(self.cb_size.currentText())
-        old_data = self.raw_data
-        old_x = np.linspace(0, 1, len(old_data))
+        if new_size == self.table_size: return
+
+        old_x = np.linspace(0, 1, self.table_size)
         new_x = np.linspace(0, 1, new_size)
-        self.raw_data = np.interp(new_x, old_x, old_data)
+        
+        # Interpola ambos os buffers
+        new_source = np.interp(new_x, old_x, self.source_data)
+        
         self.table_size = new_size
-        self.update_viz_and_code()
+        self._update_source_data(new_source)
+        self._on_filter_type_change() # Atualiza ranges dos sliders
 
     def change_bits(self):
         idx = self.cb_bits.currentIndex()
         if idx == 0: self.current_bit_depth = 8
         elif idx == 1: self.current_bit_depth = 16
-        elif idx == 2: self.current_bit_depth = 4
+        else: self.current_bit_depth = 4
         self.update_viz_and_code()
 
-    # --- GERADORES ---
+    # --- GERADORES DE ONDA ---
     def generate_formula(self, formula):
         sz = self.table_size
         try:
-            x = np.linspace(0, 2*np.pi, sz, endpoint=False)
-            ctx = {
-                "sin": np.sin, "cos": np.cos, "tan": np.tan, "tanh": np.tanh,
-                "exp": np.exp, "log": np.log, "sqrt": np.sqrt, "abs": np.abs,
-                "sign": np.sign, "pi": np.pi, "random": np.random.rand,
-                "where": np.where,
-                "x": x, "sz": sz
-            }
+            x = np.linspace(0, 2 * np.pi, sz, endpoint=False)
+            ctx = { "np": np, "sin": np.sin, "cos": np.cos, "tan": np.tan, "tanh": np.tanh,
+                    "exp": np.exp, "log": np.log, "sqrt": np.sqrt, "abs": np.abs,
+                    "sign": np.sign, "pi": np.pi, "random": np.random.rand,
+                    "where": np.where, "x": x, "sz": sz }
             res = eval(formula, {"__builtins__": None}, ctx)
             if np.isscalar(res): res = np.full(sz, res)
             res = np.nan_to_num(res.astype(float))
             mx = np.max(np.abs(res))
             if mx > 0: res /= mx
-            self.raw_data = res
-            self.viz.draw_mode = "formula"
-            self.update_viz_and_code()
+            self._update_source_data(res)
         except Exception as e:
             msg = TRANSLATIONS[self.cur_lang]["formula_err"]
             self.code_viewer.setPlainText(f"{msg}{e}")
 
     def generate_additive(self):
         sz = self.table_size
-        x = np.linspace(0, 2*np.pi, sz, endpoint=False)
+        x = np.linspace(0, 2 * np.pi, sz, endpoint=False)
         y = np.zeros(sz)
         for i, sl in enumerate(self.sliders):
             amp = sl.value() / 100.0
-            if amp > 0: y += amp * np.sin((i+1) * x)
+            if amp > 0: y += amp * np.sin((i + 1) * x)
         mx = np.max(np.abs(y))
         if mx > 0: y /= mx
-        self.raw_data = y
-        self.viz.draw_mode = "additive"
-        self.update_viz_and_code()
+        self._update_source_data(y)
     
     def reset_additive(self):
         for i, sl in enumerate(self.sliders):
@@ -695,34 +1191,15 @@ class MainWindow(QMainWindow):
             sl.blockSignals(False)
         self.generate_additive()
 
-    # --- LÓGICA DE SÍNTESE FM ---
     def generate_fm(self):
-        # Coleta parâmetros
         ops = [op.get_params() for op in self.ops_widgets]
-        fb_amt = self.slider_feedback.value() / 100.0 * 3.0 # Escala feedback
+        fb_amt = self.slider_feedback.value() / 100.0 * 3.0 
         algo = self.cb_algo.currentIndex()
         sz = self.table_size
         x = np.linspace(0, 2*np.pi, sz, endpoint=False)
         
-        # Função auxiliar de oscilador
-        def osc(phase, ratio, detune):
-            return np.sin(phase * (ratio + (detune * 0.01)))
-
-        # Buffer para feedback (precisa de loop real ou aproximação)
-        # Para wavetable estática, fazemos aproximação de modulação de fase
-        
-        # Calcula saída de cada operador
-        # DX7 Phase Modulation: sin(Phase + ModInput)
-        
-        # Op 4 com feedback (Simulação simples: Sine + (Sine*Fb))
-        # Para loop perfeito em feedback real, precisaria resolver sample a sample.
-        # Aqui usamos vetorização: Feedback vira uma distorção de fase na própria onda
-        # Op 4
-        # Aproximação de Feedback: Modula a fase com a própria onda (simplificado)
+        o4 = np.zeros(sz)
         if fb_amt > 0:
-            # Feedback real requer iteração, mas é lento em Python puro.
-            # Vamos fazer uma iteração rápida
-            o4 = np.zeros(sz)
             last = 0.0
             p4 = x * (ops[3]["ratio"] + ops[3]["detune"]*0.01)
             amp4 = ops[3]["level"]
@@ -731,149 +1208,414 @@ class MainWindow(QMainWindow):
                 o4[i] = val
                 last = val
         else:
-            o4 = ops[3]["level"] * osc(x, ops[3]["ratio"], ops[3]["detune"])
+            o4 = ops[3]["level"] * np.sin(x * (ops[3]["ratio"] + ops[3]["detune"]*0.01))
 
-        # Op 3
         def get_op(idx, mod_input=0):
-            p = ops[idx]["level"]
-            r = ops[idx]["ratio"]
-            d = ops[idx]["detune"]
-            # PM: sin(phase + mod)
-            return p * np.sin(x * (r + d*0.01) + mod_input)
+            p = ops[idx]
+            return p["level"] * np.sin(x * (p["ratio"] + p["detune"]*0.01) + mod_input)
 
-        # Roteamento baseado no Algoritmo (Simulando DX7 Algos)
         out = np.zeros(sz)
-        
-        # Textos visuais
-        alg_txts = [
-            "4 -> 3 -> 2 -> 1 -> OUT (Stack)",
-            "3->1, 4->2 (Parallel Modulators)",
-            "4->3->1, 2->1 (Branch)",
-            "4->3, 4->2, 4->1 (1 Mod drives 3)", # Correção lógica
-            "4->1, 3->1, 2->1 (3 Mods drive 1)",
-            "4 -> (3,2,1) (Broad)",
-            "1 + 2 + 3 + 4 (Additive)",
-            "4->3->2, 1 (Separate)"
-        ]
+        alg_txts = ["4->3->2->1", "3->1, 4->2", "4->3->1, 2->1", "4->(3,2,1)", "4,3,2->1", "(4,3,2)+1", "1+2+3+4", "4->3->2, 1"]
         self.lbl_algo_visual.setText(f"Fluxo: {alg_txts[algo]}")
 
-        if algo == 0: # Stack: 4->3->2->1
-            o3 = get_op(2, o4 * 5.0) # *5.0 para dar mais força à modulação FM
-            o2 = get_op(1, o3 * 5.0)
-            out = get_op(0, o2 * 5.0)
-            
-        elif algo == 1: # (4->3) + (2->1)
-            o3 = get_op(2, o4 * 5.0)
-            # Op 2 é carrier aqui? No DX7 algo 5: 2->1, 4->3. Vamos assumir 1 e 3 carriers.
-            # Vamos fazer (4->2) e (3->1)
-            o2 = get_op(1, o4 * 5.0)
-            o3 = get_op(2, 0) # 3 Livre? Vamos fazer 3 mod 1
-            out = get_op(0, o2 * 5.0 + o3 * 5.0) # Mistura
-            
-        elif algo == 2: # 4->3->1, 2->1
-            o3 = get_op(2, o4 * 5.0)
-            o2 = get_op(1, 0)
-            out = get_op(0, o3 * 5.0 + o2 * 5.0)
+        mod_scale = 5.0
+        if algo == 0: out = get_op(0, mod_scale * get_op(1, mod_scale * get_op(2, mod_scale * o4)))
+        elif algo == 1: out = get_op(0, mod_scale * get_op(2, mod_scale * o4)) + get_op(1, mod_scale * o4)
+        elif algo == 2: out = get_op(0, mod_scale * (get_op(2, mod_scale * o4) + get_op(1)))
+        elif algo == 3: out = get_op(0, mod_scale * o4) + get_op(1, mod_scale * o4) + get_op(2, mod_scale * o4)
+        elif algo == 4: out = get_op(0, mod_scale * (get_op(1) + get_op(2) + o4))
+        elif algo == 5: out = get_op(0) + get_op(1) + get_op(2, mod_scale * o4)
+        elif algo == 6: out = get_op(0) + get_op(1) + get_op(2) + o4
+        elif algo == 7: out = get_op(0) + get_op(1, mod_scale * get_op(2, mod_scale * o4))
 
-        elif algo == 3: # 4->3, 2, 1 (Todos carriers modulados por 4?)
-            # Vamos fazer 4 modulando 3, 2 e 1
-            o3 = get_op(2, o4 * 5.0)
-            o2 = get_op(1, o4 * 5.0)
-            o1 = get_op(0, o4 * 5.0)
-            out = (o1 + o2 + o3) / 3.0
-            
-        elif algo == 4: # 4->1, 3->1, 2->1
-            # 3 moduladores em paralelo entrando no 1
-            o3 = get_op(2, 0)
-            o2 = get_op(1, 0)
-            # o4 já calculado
-            mods = (o4 + o3 + o2) * 3.0
-            out = get_op(0, mods)
-            
-        elif algo == 5: # 4->(3,2,1)
-             # Igual ao 3? Vamos mudar.
-             # 4 -> 3 -> Out, 2 -> Out, 1 -> Out
-             o3 = get_op(2, o4 * 5.0)
-             o2 = get_op(1, 0)
-             o1 = get_op(0, 0)
-             out = (o3 + o2 + o1) / 3.0
-
-        elif algo == 6: # Additive
-            o3 = get_op(2, 0)
-            o2 = get_op(1, 0)
-            o1 = get_op(0, 0)
-            out = (o4 + o3 + o2 + o1) / 4.0
-            
-        elif algo == 7: # 4->3->2, 1 isolado
-             o3 = get_op(2, o4 * 5.0)
-             o2 = get_op(1, o3 * 5.0)
-             o1 = get_op(0, 0)
-             out = (o2 + o1) / 2.0
-
-        # Normaliza
         mx = np.max(np.abs(out))
         if mx > 0: out /= mx
-        
-        self.raw_data = out
-        self.viz.draw_mode = "fm"
-        self.update_viz_and_code()
+        self._update_source_data(out)
 
-    def on_manual_draw(self, data):
-        self.raw_data = data
-        self.viz.draw_mode = "manual"
-        self.update_viz_and_code()
+    def on_manual_draw(self, edited_data):
+        self._update_source_data(edited_data)
 
     def update_octave(self):
         self.piano.set_octave(self.spin_octave.value())
 
     def play_preview(self, note):
         freq = 440.0 * (2 ** ((note - 69) / 12.0))
-        processed = self.process_data_to_bits(self.raw_data)
-        self.audio.play_tone(freq, processed)
+        display_data = self.process_data_to_quantized_display(self.processed_data)
+        self.audio.play_tone(freq, display_data)
 
     def update_code(self):
         t = TRANSLATIONS[self.cur_lang]
         name = "".join(x for x in self.txt_name.text() if x.isalnum() or x=="_")
         if not name: name = "wavetable"
-        
-        processed = self.process_data_to_bits(self.raw_data)
-        sz = len(processed)
-        
-        code = f"// Wavetable: {name}\n"
-        code += f"// Size: {sz} samples | Bit Depth: {self.current_bit_depth}-bit\n"
-        
-        if self.current_bit_depth == 16:
-            data_int = (processed * 32767).astype(np.int16)
-            code += f"const int16_t wt_{name}[] = {{\n"
-            step_type = "BITS_16"
-        elif self.current_bit_depth == 8:
-            data_int = ((processed + 1.0) * 127.5).clip(0, 255).astype(np.uint8)
-            code += f"const uint8_t wt_{name}[] = {{\n"
-            step_type = "BITS_8"
-        elif self.current_bit_depth == 4:
-            steps = 15.0
-            data_quant = ((processed + 1.0) * (steps / 2.0)).clip(0, steps).astype(np.uint8)
-            data_int = (data_quant * 17).astype(np.uint8) 
-            code += f"const uint8_t wt_{name}[] = {{\n"
-            step_type = "BITS_8" 
-            code += t["code_note_4bit"]
 
+        # DECIDE SE VAMOS EXPORTAR UMA ANIMAÇÃO OU UMA ÚNICA ONDA
+        is_anim_export = len(self.animation_frames) > 0 and self.tabs.tabText(self.tabs.currentIndex()).startswith("Morph")
+
+        if not is_anim_export:
+            # --- LÓGICA ORIGINAL PARA EXPORTAR UMA ÚNICA ONDA ---
+            self.export_single_wavetable(name, self.processed_data, t)
+        else:
+            # --- NOVA LÓGICA PARA EXPORTAR ANIMAÇÃO ---
+            if self.radio_export_block.isChecked():
+                self.export_animation_big_block(name, t)
+            else:
+                self.export_animation_instrument_sequence(name, t)
+
+    def quantize_frame(self, data_float, bit_depth):
+        """Helper para quantizar um array float (-1 a 1) para o formato de inteiros desejado."""
+        sz = len(data_float)
+        
+        if bit_depth == 16:
+            return (data_float * 32767).clip(-32768, 32767).astype(np.int16)
+        
+        if bit_depth == 8:
+            return ((data_float + 1.0) * 127.5).clip(0, 255).astype(np.uint8)
+
+        if bit_depth == 4:
+            data_4bit = np.round(((data_float + 1.0) / 2.0) * 15).clip(0, 15).astype(np.uint8)
+            
+            # Garante que o tamanho é par para empacotamento
+            if sz % 2 != 0:
+                data_4bit = np.append(data_4bit, data_4bit[-1])
+                sz = len(data_4bit)
+
+            packed_data = np.zeros(sz // 2, dtype=np.uint8)
+            for i in range(0, sz, 2):
+                packed_data[i//2] = (data_4bit[i] & 0x0F) | ((data_4bit[i+1] & 0x0F) << 4)
+            return packed_data
+        
+        return np.array([]) # Retorno padrão
+
+    def format_cpp_array(self, data_int, bit_depth):
+        """Helper para formatar a lista de inteiros em uma string de array C++."""
         lines = []
         curr_line = "    "
+        items_per_line = 16
+        
         for i, val in enumerate(data_int):
-            curr_line += f"{val}, "
-            if (i + 1) % 16 == 0:
+            # Para 4-bit, os dados já estão empacotados em uint8_t, então formatamos como hex
+            is_packed_4bit = bit_depth == 4
+            curr_line += f"0x{val:02x}, " if is_packed_4bit else f"{val}, "
+            
+            if (i + 1) % items_per_line == 0:
                 lines.append(curr_line)
                 curr_line = "    "
-        if curr_line.strip(): lines.append(curr_line)
+        if curr_line.strip():
+            lines.append(curr_line)
+        return "\n".join(lines)
+
+    def export_single_wavetable(self, name, data_to_export, t):
+        """Gera o código C++ para uma única wavetable."""
+        sz = len(data_to_export)
+        bit_depth = self.current_bit_depth
         
-        code += "\n".join(lines)
+        code = f"// Wavetable: {name}\n"
+        code += f"// Size: {sz} samples | Bit Depth: {bit_depth}-bit\n"
+        
+        data_int = self.quantize_frame(data_to_export, bit_depth)
+        
+        cpp_type = "const int16_t" if bit_depth == 16 else "const uint8_t"
+        step_type = f"BITS_{bit_depth}"
+        
+        if bit_depth == 4 and sz % 2 != 0:
+             code += f"// Warning: Sample count padded to {sz+1} for 4-bit packing.\n"
+
+        code += f"{cpp_type} wt_{name}[] = {{\n"
+        code += self.format_cpp_array(data_int, bit_depth)
+        code += "\n};\n\n"
+        
+        size_expr = f"sizeof(wt_{name})"
+        if bit_depth == 16:
+            size_expr += " / 2"
+        elif bit_depth == 4:
+            size_expr += " * 2"
+
+        code += t["code_setup"]
+        code += f"synth.setWavetable(0, wt_{name}, {size_expr}, {step_type});\n"
+        
+        self.code_viewer.setPlainText(code)
+
+    def export_animation_big_block(self, name, t):
+        """Gera o código C++ para uma animação em um único array."""
+        bit_depth = self.current_bit_depth
+        num_frames = len(self.animation_frames)
+        table_size = len(self.animation_frames[0])
+        total_samples = num_frames * table_size
+        
+        code = f"// Wavetable Animation: {name} (Big Block)\n"
+        code += f"// {num_frames} frames | {table_size} samples/frame | {bit_depth}-bit\n"
+        code += f"// Total samples: {total_samples}\n"
+        
+        # Concatena todos os frames quantizados
+        all_data_int = []
+        for frame_data in self.animation_frames:
+            quantized = self.quantize_frame(frame_data, bit_depth)
+            all_data_int.extend(quantized)
+
+        cpp_type = "const int16_t" if bit_depth == 16 else "const uint8_t"
+        step_type = f"BITS_{bit_depth}"
+        
+        code += f"{cpp_type} anim_{name}_block[] = {{\n"
+        code += self.format_cpp_array(all_data_int, bit_depth)
         code += "\n};\n\n"
         
         code += t["code_setup"]
-        code += f"// synth.setWavetable(0, wt_{name}, {sz}, {step_type});\n"
+        code += "// Para usar este bloco, você precisará de uma função no ESP32Synth que\n"
+        code += "// aceite um número de frames, ou controle o offset manualmente.\n"
+        code += f"// Exemplo conceitual:\n"
+        code += f"// synth.setWavetableAnimation(0, anim_{name}_block, {table_size}, {num_frames}, {step_type});\n"
         
         self.code_viewer.setPlainText(code)
+
+    def export_animation_instrument_sequence(self, name, t):
+        """Gera o código C++ como uma sequência de arrays + um array de ponteiros."""
+        bit_depth = self.current_bit_depth
+        num_frames = len(self.animation_frames)
+        table_size = len(self.animation_frames[0])
+
+        code = f"// Wavetable Animation: {name} (Instrument Sequence)\n"
+        code += f"// {num_frames} frames | {table_size} samples/frame | {bit_depth}-bit\n\n"
+
+        cpp_type = "const int16_t" if bit_depth == 16 else "const uint8_t"
+        step_type = f"BITS_{bit_depth}"
+        
+        frame_names = []
+        for i, frame_data in enumerate(self.animation_frames):
+            frame_name = f"wt_{name}_anim_{i}"
+            frame_names.append(frame_name)
+            
+            data_int = self.quantize_frame(frame_data, bit_depth)
+            
+            code += f"// Frame {i}\n"
+            code += f"{cpp_type} {frame_name}[] = {{\n"
+            code += self.format_cpp_array(data_int, bit_depth)
+            code += "\n};\n\n"
+
+        # Array de ponteiros
+        code += f"// Array de ponteiros para a sequência de animação\n"
+        code += f"{cpp_type}* seq_{name}[] = {{\n    "
+        code += ", ".join(frame_names)
+        code += "\n};\n\n"
+        
+        size_expr = f"{table_size}"
+
+        code += t["code_setup"]
+        
+        if self.check_generate_instrument.isChecked():
+            code += f"// Definição da struct e função de setup para o instrumento '{name}'\n"
+            code += f"Instrument inst_{name};\n\n"
+            code += f"void setup_{name}(Synth& synth, int instrument_slot) {{\n"
+            code += f"    inst_{name}.wavetable = seq_{name}[0];\n"
+            code += f"    inst_{name}.wavetableSize = {size_expr};\n"
+            code += f"    inst_{name}.wavetableBitDepth = {step_type};\n"
+            code += f"    inst_{name}.sequenceWavetables = seq_{name};\n"
+            code += f"    inst_{name}.sequenceLength = {num_frames};\n"
+            code += f"    // Aumente o valor de 'morph_time' para uma animação mais lenta\n"
+            code += f"    inst_{name}.morph_time = 1.0f / {num_frames};\n"
+            code += f"    synth.loadInstrument(instrument_slot, inst_{name});\n"
+            code += f"}}\n\n"
+            code += f"// Chame no seu setup() principal:\n"
+            code += f"// setup_{name}(synth, 0);\n"
+        else:
+            code += "// Use com a struct Instrument do ESP32Synth:\n"
+            code += f"// Instrument myInstrument;\n"
+            code += f"// myInstrument.wavetable = seq_{name}[0]; // Frame inicial\n"
+            code += f"// myInstrument.wavetableSize = {size_expr};\n"
+            code += f"// myInstrument.wavetableBitDepth = {step_type};\n"
+            code += f"// myInstrument.sequenceWavetables = seq_{name};\n"
+            code += f"// myInstrument.sequenceLength = {num_frames};\n"
+            code += f"// synth.loadInstrument(0, myInstrument);\n"
+
+        self.code_viewer.setPlainText(code)
+
+    # --- NOVA LÓGICA DE MORPH / ANIMAÇÃO ---
+    def update_keyframe_button_states(self):
+        """Ativa/desativa botões de manipulação de keyframe com base na seleção."""
+        has_selection = self.list_keyframes.currentItem() is not None
+        self.btn_kf_del.setEnabled(has_selection)
+        self.btn_kf_update.setEnabled(has_selection)
+        self.btn_kf_dup.setEnabled(has_selection)
+        
+        row = self.list_keyframes.currentRow()
+        self.btn_kf_up.setEnabled(has_selection and row > 0)
+        self.btn_kf_down.setEnabled(has_selection and row < self.list_keyframes.count() - 1)
+
+    def capture_keyframe(self):
+        """Captura o estado atual da onda processada como um novo keyframe."""
+        # Armazena uma cópia dos dados da onda
+        new_frame_data = np.copy(self.processed_data)
+        frame_name = f"Keyframe {self.list_keyframes.count() + 1}"
+        
+        # Adiciona o array de dados na nossa lista de backend
+        self.animation_keyframes.append(new_frame_data)
+        
+        # Adiciona um item na QListWidget para o usuário ver
+        item = QListWidgetItem(frame_name)
+        self.list_keyframes.addItem(item)
+        self.list_keyframes.setCurrentItem(item)
+        self.update_keyframe_button_states()
+
+    def delete_keyframe(self):
+        """Exclui o keyframe selecionado."""
+        current_item = self.list_keyframes.currentItem()
+        if not current_item: return
+        
+        row = self.list_keyframes.row(current_item)
+        
+        # Remove da QListWidget e da nossa lista de backend
+        self.list_keyframes.takeItem(row)
+        if row < len(self.animation_keyframes):
+            del self.animation_keyframes[row]
+            
+        self.update_keyframe_button_states()
+
+    def update_keyframe(self):
+        """Atualiza o keyframe selecionado com a onda atualmente exibida."""
+        current_item = self.list_keyframes.currentItem()
+        if not current_item: return
+
+        row = self.list_keyframes.row(current_item)
+        if row < len(self.animation_keyframes):
+            self.animation_keyframes[row] = np.copy(self.processed_data)
+            # Poderíamos adicionar um feedback visual, como um "(atualizado!)" no nome, mas não é essencial
+            
+    def duplicate_keyframe(self):
+        """Duplica o keyframe selecionado."""
+        current_item = self.list_keyframes.currentItem()
+        if not current_item: return
+
+        row = self.list_keyframes.row(current_item)
+        if row < len(self.animation_keyframes):
+            original_data = self.animation_keyframes[row]
+            new_data = np.copy(original_data)
+            new_name = f"{current_item.text()} (Cópia)"
+            
+            # Insere o novo frame logo após o original
+            self.animation_keyframes.insert(row + 1, new_data)
+            self.list_keyframes.insertItem(row + 1, new_name)
+            self.list_keyframes.setCurrentRow(row + 1)
+
+    def move_keyframe_up(self):
+        """Move o keyframe selecionado uma posição para cima."""
+        row = self.list_keyframes.currentRow()
+        if row > 0:
+            # Move na QListWidget
+            item = self.list_keyframes.takeItem(row)
+            self.list_keyframes.insertItem(row - 1, item)
+            self.list_keyframes.setCurrentRow(row - 1)
+            
+            # Move na lista de backend
+            frame = self.animation_keyframes.pop(row)
+            self.animation_keyframes.insert(row - 1, frame)
+            
+    def move_keyframe_down(self):
+        """Move o keyframe selecionado uma posição para baixo."""
+        row = self.list_keyframes.currentRow()
+        if 0 <= row < self.list_keyframes.count() - 1:
+            # Move na QListWidget
+            item = self.list_keyframes.takeItem(row)
+            self.list_keyframes.insertItem(row + 1, item)
+            self.list_keyframes.setCurrentRow(row + 1)
+
+            # Move na lista de backend
+            frame = self.animation_keyframes.pop(row)
+            self.animation_keyframes.insert(row + 1, frame)
+
+    def reorder_keyframes_from_drag(self, source_parent, source_start, source_end, dest_parent, dest_row):
+        """Sincroniza a lista de backend quando o usuário arrasta e solta um item."""
+        if source_start != dest_row:
+             # Remove o item da posição antiga e insere na nova
+            moved_item = self.animation_keyframes.pop(source_start)
+            if dest_row > source_start:
+                 self.animation_keyframes.insert(dest_row -1, moved_item)
+            else:
+                 self.animation_keyframes.insert(dest_row, moved_item)
+
+    def generate_morph(self):
+        """Gera a sequência de animação interpolando os keyframes."""
+        if len(self.animation_keyframes) < 2:
+            # Idealmente, mostraríamos um QMessageBox aqui.
+            print("Erro: São necessários pelo menos 2 keyframes para gerar a animação.")
+            return
+
+        total_anim_frames = self.spin_anim_size.value()
+        num_keyframes = len(self.animation_keyframes)
+        
+        self.animation_frames = []
+        
+        # O np.linspace precisa de `num` pontos, então para o último keyframe, queremos que ele seja o ponto final
+        x_points = np.linspace(0, num_keyframes - 1, total_anim_frames)
+        
+        # Os "índices" dos nossos keyframes (0, 1, 2, ...)
+        xp = np.arange(num_keyframes)
+        
+        # Empilha os keyframes para que o numpy possa interpolar ao longo de um novo eixo
+        # Shape: (num_keyframes, table_size)
+        fp = np.stack(self.animation_keyframes)
+
+        # Interpola todos os samples da wavetable de uma vez
+        # np.interp requer que os pontos de interpolação `x_points` sejam 1D,
+        # e os valores `fp` também sejam 1D. Precisamos fazer isso para cada sample da tabela.
+        # Transpomos para que a interpolação ocorra ao longo do eixo dos keyframes.
+        # Shape de fp.T: (table_size, num_keyframes)
+        interpolated_stack = np.zeros((self.table_size, total_anim_frames))
+        for i in range(self.table_size):
+            interpolated_stack[i, :] = np.interp(x_points, xp, fp[:, i])
+            
+        # Agora, destranspomos para ter nossa lista de frames
+        # Shape final: (total_anim_frames, table_size)
+        final_frames = interpolated_stack.T
+
+        # Normaliza cada frame individualmente para evitar clipping
+        for frame in final_frames:
+            mx = np.max(np.abs(frame))
+            if mx > 0:
+                frame /= mx
+            self.animation_frames.append(frame)
+
+        # Atualiza a UI de preview
+        self.slider_anim_preview.setEnabled(True)
+        self.slider_anim_preview.setRange(0, total_anim_frames - 1)
+        self.btn_anim_play.setEnabled(True)
+        self.lbl_anim_frame_count.setText(f"1 / {total_anim_frames}")
+        self.update_code() # Gera o código para a nova animação
+        
+    def preview_animation_frame(self, frame_index):
+        """Exibe um único frame da animação no visualizador principal."""
+        if 0 <= frame_index < len(self.animation_frames):
+            frame_data = self.animation_frames[frame_index]
+            
+            # Usamos o `source_data` do primeiro keyframe como um "fundo" de referência
+            ref_source = self.animation_keyframes[0] if self.animation_keyframes else self.source_data
+            
+            display_data = self.process_data_to_quantized_display(frame_data)
+            self.viz.setData(ref_source, display_data)
+            
+            total_frames = len(self.animation_frames)
+            self.lbl_anim_frame_count.setText(f"{frame_index + 1} / {total_frames}")
+
+    def toggle_animation_playback(self, checked):
+        """Inicia ou para o playback da animação."""
+        if checked and self.animation_frames:
+            self.btn_anim_play.setText("❚❚ Pause")
+            self.animation_timer.start()
+        else:
+            self.btn_anim_play.setText("▶ Play")
+            self.animation_timer.stop()
+
+    def animation_step(self):
+        """Avança um frame na animação, chamado pelo QTimer."""
+        if not self.animation_frames:
+            self.toggle_animation_playback(False)
+            return
+            
+        current_val = self.slider_anim_preview.value()
+        max_val = self.slider_anim_preview.maximum()
+        
+        next_val = (current_val + 1) % (max_val + 1)
+        self.slider_anim_preview.setValue(next_val)
+
+    # --- FIM DA LÓGICA DE ANIMAÇÃO ---
 
     def apply_theme(self):
         palette = QPalette()
