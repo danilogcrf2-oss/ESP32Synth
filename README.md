@@ -4,7 +4,7 @@
   <img src="banner.jpg" alt="ESP32Synth banner" width="100%">
 </p>
 
-![Version](https://img.shields.io/badge/beta version-2.3.5-orange.svg) ![Platform](https://img.shields.io/badge/platform-ESP32-orange.svg) ![License](https://img.shields.io/badge/license-MIT-blue.svg)
+![Version](https://img.shields.io/badge/betaVersion-2.3.5-orange.svg) ![Platform](https://img.shields.io/badge/platform-ESP32-orange.svg) ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 
 **[English]** A high-performance, polyphonic audio synthesis library for the ESP32. It is engineered for professional applications and hobbyist projects that require low-latency, high-polyphony audio synthesis with a rich and flexible feature set.
 
