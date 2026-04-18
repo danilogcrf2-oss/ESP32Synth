@@ -635,4 +635,4 @@ Dentro da pasta `tools/` deste repositório, você encontra scripts Python proje
 *   **Módulo reiniciando do nada (Deadlock):** Ao desligar o synth usando `synth.end()`, aguarde cerca de 50ms (via `vTaskDelay`) antes de destruir ou reiniciar instâncias pesadas. O RTOS do ESP-IDF necessita de alguns ciclos livres para soltar os *mutexes* das tasks I2S com segurança. A biblioteca trata a maior parte disso, mas seja cauteloso ao desconectar pinos em tempo de execução.
 
 ---
-<p align="center"><i>Construído com paixão, muito café e matemática pesadamente otimizada.</i></p>
+<p align="center"><i>Construído com paixão, muito café e matemática pesadamente otimizada. ❤️</i></p>
