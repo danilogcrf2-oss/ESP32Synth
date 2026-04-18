@@ -32,10 +32,10 @@
 
 // /* // default:
 #define MAX_VOICES 80 // ram safe max 140, default 80, max 350, jitter and FreeRTOS no time for tasks 364
-#define MAX_WAVETABLES 0 // default 100
-#define MAX_SAMPLES 0 // default 100
-#define MAX_ARP_NOTES 1 // default 16
-#define MAX_STREAMS 0 // Max concurrent SD streams (RAM/CPU limited).
+#define MAX_WAVETABLES 100 // default 100
+#define MAX_SAMPLES 100 // default 100
+#define MAX_ARP_NOTES 16 // default 16
+#define MAX_STREAMS 4 // Max concurrent SD streams (RAM/CPU limited).
 #define STREAM_BUF_SAMPLES 0 // Ring buffer size (Must be power of 2).
 // */ 
 
