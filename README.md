@@ -37,12 +37,12 @@
 
 1. [🇺🇸 English Documentation](#-english-documentation)
    - [1. Overview & Key Features](#1-overview--key-features)
-   -[2. Under the Hood (Architecture & Limits)](#2-how-it-works-under-the-hood-internal-architecture)
+   - [2. Under the Hood (Architecture & Limits)](#2-how-it-works-under-the-hood-internal-architecture)
    - [3. Requirements & Installation](#3-requirements--installation)
-   -[4. Definitive API Guide](#4-definitive-api-guide)
-   -[5. Advanced DSP & Custom Waves](#5-creating-effects-reverb--custom-waves)
+   - [4. Definitive API Guide](#4-definitive-api-guide)
+   - [5. Advanced DSP & Custom Waves](#5-creating-effects-reverb--custom-waves)
 2. [🇧🇷 Documentação em Português](#-documentação-em-português) *(Abaixo da seção em Inglês)*
-3.[🛠 Tools / Ferramentas](#-tools--ferramentas)
+3. [🛠 Tools / Ferramentas](#-tools--ferramentas)
 4. [⚠️ Troubleshooting](#-common-troubleshooting)
 
 ---
