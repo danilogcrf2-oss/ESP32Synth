@@ -9,50 +9,83 @@
 ESP32Synth	KEYWORD1
 Instrument	KEYWORD1
 Instrument_Sample	KEYWORD1
+SampleData	KEYWORD1
+SampleZone	KEYWORD1
+StreamTrack	KEYWORD1
 Voice	KEYWORD1
 SynthOutputMode	KEYWORD1
 WaveType	KEYWORD1
-FilterType	KEYWORD1
 BitDepth	KEYWORD1
 EnvState	KEYWORD1
+I2S_Depth	KEYWORD1
 LoopMode	KEYWORD1
+SynthCustomWaveCallback	KEYWORD1
+SynthDSPCallback	KEYWORD1
+SynthControlCallback	KEYWORD1
 
 #######################################
 # Methods and Functions (KEYWORD2)
 #######################################
 
 begin	KEYWORD2
+end	KEYWORD2
+setControlRateHz	KEYWORD2
+setVolDepthBase	KEYWORD2
+setMasterBitcrush	KEYWORD2
+setMasterVolume	KEYWORD2
+getMasterVolume	KEYWORD2
+getChipModel	KEYWORD2
+getSampleRate	KEYWORD2
+setCustomDSP	KEYWORD2
+setCustomControl	KEYWORD2
 noteOn	KEYWORD2
 noteOff	KEYWORD2
 setFrequency	KEYWORD2
 setVolume	KEYWORD2
 setWave	KEYWORD2
 setPulseWidth	KEYWORD2
+setCustomWave	KEYWORD2
 setEnv	KEYWORD2
+setStartPhase	KEYWORD2
+setCurrentPhase	KEYWORD2
 setVibrato	KEYWORD2
 setTremolo	KEYWORD2
+slideFreq	KEYWORD2
+slideFreqTo	KEYWORD2
+slideVol	KEYWORD2
+slideVolTo	KEYWORD2
 setWavetable	KEYWORD2
-setInstrument	KEYWORD2
-detachWave	KEYWORD2
-detachInstrumentAndSetWave	KEYWORD2
 registerWavetable	KEYWORD2
-setControlRateHz	KEYWORD2
-slide	KEYWORD2
-slideTo	KEYWORD2
+setInstrument	KEYWORD2
+detachInstrument	KEYWORD2
+registerSample	KEYWORD2
+setSample	KEYWORD2
+setSampleLoop	KEYWORD2
+setArpeggio	KEYWORD2
+detachArpeggio	KEYWORD2
+setupStream	KEYWORD2
+playStream	KEYWORD2
+pauseStream	KEYWORD2
+resumeStream	KEYWORD2
+stopStream	KEYWORD2
+seekStreamMs	KEYWORD2
+setStreamLoopPointsMs	KEYWORD2
+getStreamPositionMs	KEYWORD2
+getStreamDurationMs	KEYWORD2
+isStreamPlaying	KEYWORD2
 getFrequencyCentiHz	KEYWORD2
+getVolume	KEYWORD2
 getVolume8Bit	KEYWORD2
 getEnv8Bit	KEYWORD2
 getOutput8Bit	KEYWORD2
 getVolumeRaw	KEYWORD2
 getEnvRaw	KEYWORD2
 getOutputRaw	KEYWORD2
-registerSample	KEYWORD2
-detachArpeggio	KEYWORD2
-setArpeggio	KEYWORD2
-renderLoop	KEYWORD2
 isVoiceActive	KEYWORD2
-getChipModel	KEYWORD2
-getSampleRate	KEYWORD2
+getEnvState	KEYWORD2
+getWaveType	KEYWORD2
+getPhase	KEYWORD2
+getPulseWidth	KEYWORD2
 
 #######################################
 # Constants (LITERAL1)
@@ -66,9 +99,11 @@ WAVE_SINE	LITERAL1
 WAVE_TRIANGLE	LITERAL1
 WAVE_SAW	LITERAL1
 WAVE_PULSE	LITERAL1
-WAVE_WAVETABLE	LITERAL1
 WAVE_NOISE	LITERAL1
+WAVE_WAVETABLE	LITERAL1
 WAVE_SAMPLE	LITERAL1
+WAVE_STREAM	LITERAL1
+WAVE_CUSTOM	LITERAL1
 
 LOOP_OFF	LITERAL1
 LOOP_FORWARD	LITERAL1
@@ -78,3 +113,12 @@ LOOP_REVERSE	LITERAL1
 BITS_4	LITERAL1
 BITS_8	LITERAL1
 BITS_16	LITERAL1
+
+I2S_16BIT	LITERAL1
+I2S_32BIT	LITERAL1
+
+ENV_IDLE	LITERAL1
+ENV_ATTACK	LITERAL1
+ENV_DECAY	LITERAL1
+ENV_SUSTAIN	LITERAL1
+ENV_RELEASE	LITERAL1

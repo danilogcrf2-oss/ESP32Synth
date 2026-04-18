@@ -8,7 +8,7 @@ import pygame
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
     QPushButton, QLabel, QFileDialog, QComboBox, QSpinBox, 
-    QPlainTextEdit, QSplitter, QGroupBox, QStyle, QSizePolicy
+    QPlainTextEdit, QSplitter, QGroupBox, QStyle, QMessageBox
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QRectF, QTimer
 from PyQt6.QtGui import QPainter, QColor, QPen, QBrush, QPalette, QFont
@@ -16,44 +16,56 @@ from PyQt6.QtGui import QPainter, QColor, QPen, QBrush, QPalette, QFont
 # --- DICIONÁRIO DE TRADUÇÃO ---
 TRANSLATIONS = {
     "pt": {
-        "window_title": "Conversor de Samples para ESP32Synth (v3.0)",
+        "window_title": "Conversor de Samples para ESP32Synth (v3.1)",
         "grp_file": "Arquivo e Preview",
         "btn_load": "Carregar WAV...",
         "no_file": "Nenhum arquivo carregado.",
         "btn_play": "Play Preview",
         "btn_stop": "Stop",
-        "grp_loop": "Configuração de Loop",
+        "grp_config": "Configurações: Loop e Qualidade",
         "lbl_mode": "Modo de Loop:",
         "lbl_start": "Início:",
         "lbl_end": "Fim:",
+        "lbl_bitdepth": "Qualidade (Bits):",
         "btn_convert": "CONVERTER / GERAR CÓDIGO",
+        "btn_export": "EXPORTAR ARQUIVO .H",
         "grp_data": "1. Array de Dados C++",
         "grp_inst": "2. Configuração do Instrumento",
         "dlg_title": "Abrir Arquivo de Áudio",
+        "dlg_export": "Salvar Arquivo .h",
         "file_info": "Arquivo: {0} | Taxa: {1}Hz | Samples: {2} | Duração: {3:.2f}s",
-        "loop_modes": ["LOOP_OFF (Nenhum)", "LOOP_FORWARD (->)", "LOOP_PINGPONG (<->)", "LOOP_REVERSE (<-)"],
+        "loop_modes":["LOOP_OFF (Nenhum)", "LOOP_FORWARD (->)", "LOOP_PINGPONG (<->)", "LOOP_REVERSE (<-)"],
+        "bit_modes":["16-Bit (Alta Qualidade)", "8-Bit (Média Qualidade)", "4-Bit (Baixa Qual., 2x Menor)"],
         "waveform_msg": "Carregue um arquivo WAV...",
-        "btn_lang": "🇺🇸 English"
+        "btn_lang": "🇺🇸 English",
+        "export_success": "Arquivo salvo com sucesso em:\n{0}",
+        "export_empty": "Nada para exportar! Gere o código primeiro."
     },
     "en": {
-        "window_title": "Sample Converter for ESP32Synth (v3.0)",
+        "window_title": "Sample Converter for ESP32Synth (v3.1)",
         "grp_file": "File & Preview",
         "btn_load": "Load WAV...",
         "no_file": "No file loaded.",
         "btn_play": "Play Preview",
         "btn_stop": "Stop",
-        "grp_loop": "Loop Configuration",
+        "grp_config": "Settings: Loop & Quality",
         "lbl_mode": "Loop Mode:",
         "lbl_start": "Start:",
         "lbl_end": "End:",
+        "lbl_bitdepth": "Quality (Bits):",
         "btn_convert": "CONVERT / GENERATE CODE",
+        "btn_export": "EXPORT .H FILE",
         "grp_data": "1. C++ Data Array",
         "grp_inst": "2. Instrument Configuration",
         "dlg_title": "Open Audio File",
+        "dlg_export": "Save .h File",
         "file_info": "File: {0} | Rate: {1}Hz | Samples: {2} | Duration: {3:.2f}s",
-        "loop_modes": ["LOOP_OFF (None)", "LOOP_FORWARD (->)", "LOOP_PINGPONG (<->)", "LOOP_REVERSE (<-)"],
+        "loop_modes":["LOOP_OFF (None)", "LOOP_FORWARD (->)", "LOOP_PINGPONG (<->)", "LOOP_REVERSE (<-)"],
+        "bit_modes":["16-Bit (High Quality)", "8-Bit (Medium Quality)", "4-Bit (Low Qual., 2x Smaller)"],
         "waveform_msg": "Load a WAV file...",
-        "btn_lang": "🇧🇷 Português"
+        "btn_lang": "🇧🇷 Português",
+        "export_success": "File successfully saved to:\n{0}",
+        "export_empty": "Nothing to export! Generate code first."
     }
 }
 
@@ -75,7 +87,7 @@ class WaveformWidget(QWidget):
         self.loop_start = 0
         self.loop_end = 0
         
-        self.playback_cursor = -1 # Posição do cursor (-1 = invisível)
+        self.playback_cursor = -1 
         self.message = "Carregue um arquivo WAV..."
         
         self.dragging = None 
@@ -86,7 +98,6 @@ class WaveformWidget(QWidget):
         self.update()
 
     def setData(self, audio_data):
-        # Garante mono para visualização
         if len(audio_data.shape) > 1:
             self.audio_data = np.mean(audio_data, axis=1)
         else:
@@ -105,7 +116,6 @@ class WaveformWidget(QWidget):
         if width <= 0: return
         factor = int(self.total_samples / width)
         if factor < 1: factor = 1
-        # Otimização: Pega o pico absoluto para desenhar a forma de onda
         reduced_data = np.abs(self.audio_data[:len(self.audio_data)//factor*factor].reshape(-1, factor)).max(axis=1)
         self.display_data = reduced_data
 
@@ -144,7 +154,6 @@ class WaveformWidget(QWidget):
         mid_y = self.height() / 2
         scale_y = self.height() / 2 * 0.95 
 
-        # 1. Desenha a Onda
         painter.setPen(QPen(QColor("#00ff7f"), 1)) 
         x_step = self.width() / len(self.display_data)
         for i, val in enumerate(self.display_data):
@@ -155,7 +164,6 @@ class WaveformWidget(QWidget):
         painter.setPen(QPen(QColor("#444444"), 1))
         painter.drawLine(0, int(mid_y), self.width(), int(mid_y)) 
 
-        # 2. Desenha o Loop (Área Laranja)
         if self.loop_enabled:
             px_start = self.sampleToPixel(self.loop_start)
             px_end = self.sampleToPixel(self.loop_end)
@@ -168,23 +176,19 @@ class WaveformWidget(QWidget):
             painter.drawLine(int(px_start), 0, int(px_start), self.height())
             painter.drawLine(int(px_end), 0, int(px_end), self.height())
             
-            # Handles (Triângulos)
             handle_size = 8
             painter.setBrush(QColor("#FFA500"))
-            # Start Handle
             painter.drawPolygon([
                  QRectF(px_start - handle_size/2, 0, handle_size, handle_size).bottomLeft(),
                  QRectF(px_start - handle_size/2, 0, handle_size, handle_size).topRight(),
                  QRectF(px_start - handle_size/2, 0, handle_size, handle_size).topLeft(),
             ])
-            # End Handle
             painter.drawPolygon([
                  QRectF(px_end - handle_size/2, 0, handle_size, handle_size).bottomRight(),
                  QRectF(px_end - handle_size/2, 0, handle_size, handle_size).topRight(),
                  QRectF(px_end - handle_size/2, 0, handle_size, handle_size).topLeft(),
             ])
 
-        # 3. Desenha o Cursor de Playback (Linha Vermelha)
         if self.playback_cursor >= 0 and self.playback_cursor < self.total_samples:
             px_cursor = self.sampleToPixel(self.playback_cursor)
             painter.setPen(QPen(QColor("#FF3333"), 2))
@@ -242,7 +246,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.cur_lang = "pt"
-        self.setMinimumSize(900, 750)
+        self.setMinimumSize(950, 750)
         
         self.filepath = ""
         self.filename = "sample"
@@ -251,13 +255,11 @@ class MainWindow(QMainWindow):
         self.raw_data_int16_mono = None
         self.current_sound = None 
         
-        # Variáveis de Playback
         self.playback_start_time = 0
         self.is_playing = False
         
-        # Timer para atualizar o visualizador
         self.timer = QTimer()
-        self.timer.setInterval(30) # ~30 FPS
+        self.timer.setInterval(30)
         self.timer.timeout.connect(self.update_playback_cursor)
 
         self.init_ui()
@@ -270,7 +272,7 @@ class MainWindow(QMainWindow):
         container.setLayout(main_layout)
         self.setCentralWidget(container)
 
-        # 0. Botão de Idioma (Top Right)
+        # 0. Botão de Idioma
         top_bar = QHBoxLayout()
         top_bar.addStretch()
         self.btn_lang = QPushButton("🇺🇸 English")
@@ -279,7 +281,7 @@ class MainWindow(QMainWindow):
         top_bar.addWidget(self.btn_lang)
         main_layout.addLayout(top_bar)
 
-        # 1. Topo: Arquivo e Preview
+        # 1. Arquivo e Preview
         self.group_file = QGroupBox("Arquivo e Preview")
         top_layout = QHBoxLayout()
         
@@ -305,10 +307,21 @@ class MainWindow(QMainWindow):
         self.group_file.setLayout(top_layout)
         main_layout.addWidget(self.group_file)
 
-        # 2. Controles de Loop
-        self.group_loop = QGroupBox("Configuração de Loop")
+        # 2. Configurações: Loop e Qualidade
+        self.group_loop = QGroupBox("Configurações: Loop e Qualidade")
         loop_layout = QHBoxLayout()
         
+        # Qualidade
+        self.lbl_bitdepth = QLabel("Qualidade:")
+        loop_layout.addWidget(self.lbl_bitdepth)
+        self.combo_bitdepth = QComboBox()
+        self.combo_bitdepth.addItems(["16-Bit", "8-Bit", "4-Bit"])
+        self.combo_bitdepth.currentIndexChanged.connect(lambda: self.generate_code() if self.raw_data_int16_mono is not None else None)
+        loop_layout.addWidget(self.combo_bitdepth)
+        
+        loop_layout.addSpacing(15)
+        
+        # Loop Config
         self.lbl_mode = QLabel("Modo de Loop:")
         loop_layout.addWidget(self.lbl_mode)
         self.combo_mode = QComboBox()
@@ -316,7 +329,7 @@ class MainWindow(QMainWindow):
         self.combo_mode.currentIndexChanged.connect(self.on_loop_mode_changed)
         loop_layout.addWidget(self.combo_mode)
         
-        loop_layout.addSpacing(20)
+        loop_layout.addSpacing(15)
         
         self.lbl_start = QLabel("Início:")
         loop_layout.addWidget(self.lbl_start)
@@ -342,12 +355,21 @@ class MainWindow(QMainWindow):
         self.waveform.loopPointsChanged.connect(self.update_spinboxes_from_waveform)
         main_layout.addWidget(self.waveform, 1) 
 
-        # 4. Botão Converter
+        # 4. Botões de Ação
+        action_layout = QHBoxLayout()
         self.btn_convert = QPushButton("CONVERTER / GERAR CÓDIGO")
         self.btn_convert.setMinimumHeight(40)
         self.btn_convert.setStyleSheet("font-weight: bold; font-size: 14px; background-color: #007acc;")
         self.btn_convert.clicked.connect(self.generate_code)
-        main_layout.addWidget(self.btn_convert)
+        
+        self.btn_export = QPushButton("EXPORTAR ARQUIVO .H")
+        self.btn_export.setMinimumHeight(40)
+        self.btn_export.setStyleSheet("font-weight: bold; font-size: 14px; background-color: #2e8b57;")
+        self.btn_export.clicked.connect(self.export_h_file)
+
+        action_layout.addWidget(self.btn_convert)
+        action_layout.addWidget(self.btn_export)
+        main_layout.addLayout(action_layout)
 
         # 5. Áreas de Texto
         splitter = QSplitter(Qt.Orientation.Vertical)
@@ -370,7 +392,7 @@ class MainWindow(QMainWindow):
         
         splitter.addWidget(self.group_data)
         splitter.addWidget(self.group_inst)
-        splitter.setSizes([400, 200])
+        splitter.setSizes([350, 150])
         
         main_layout.addWidget(splitter, 2) 
 
@@ -382,40 +404,43 @@ class MainWindow(QMainWindow):
         t = TRANSLATIONS[self.cur_lang]
         
         self.setWindowTitle(t["window_title"])
-        
         self.btn_lang.setText(t["btn_lang"])
-        
         self.group_file.setTitle(t["grp_file"])
         self.btn_load.setText(t["btn_load"])
         self.btn_play.setText(t["btn_play"])
         self.btn_stop.setText(t["btn_stop"])
         
-        # Atualiza a label de info (se arquivo estiver carregado ou não)
         if self.raw_data_int16 is None:
             self.lbl_info.setText(t["no_file"])
         else:
-            # Reconstrói a string de info com o template traduzido
             frames = len(self.raw_data_int16)
             duration = frames / self.sr
-            self.lbl_info.setText(t["file_info"].format(
-                os.path.basename(self.filepath), self.sr, frames, duration
-            ))
+            self.lbl_info.setText(t["file_info"].format(os.path.basename(self.filepath), self.sr, frames, duration))
 
-        self.group_loop.setTitle(t["grp_loop"])
+        self.group_loop.setTitle(t["grp_config"])
         self.lbl_mode.setText(t["lbl_mode"])
         self.lbl_start.setText(t["lbl_start"])
         self.lbl_end.setText(t["lbl_end"])
+        self.lbl_bitdepth.setText(t["lbl_bitdepth"])
         
-        # Atualiza itens do Combo Box sem perder a seleção
-        current_idx = self.combo_mode.currentIndex()
+        # Combo Boxes
+        cb_idx = self.combo_mode.currentIndex()
         self.combo_mode.blockSignals(True)
         self.combo_mode.clear()
         self.combo_mode.addItems(t["loop_modes"])
-        self.combo_mode.setCurrentIndex(current_idx)
+        self.combo_mode.setCurrentIndex(cb_idx)
         self.combo_mode.blockSignals(False)
+        
+        bd_idx = self.combo_bitdepth.currentIndex()
+        self.combo_bitdepth.blockSignals(True)
+        self.combo_bitdepth.clear()
+        self.combo_bitdepth.addItems(t["bit_modes"])
+        self.combo_bitdepth.setCurrentIndex(bd_idx)
+        self.combo_bitdepth.blockSignals(False)
         
         self.waveform.setMessage(t["waveform_msg"])
         self.btn_convert.setText(t["btn_convert"])
+        self.btn_export.setText(t["btn_export"])
         self.group_data.setTitle(t["grp_data"])
         self.group_inst.setTitle(t["grp_inst"])
 
@@ -428,23 +453,16 @@ class MainWindow(QMainWindow):
                 self.filename = os.path.splitext(os.path.basename(file_name))[0]
                 self.filename = "".join([c if c.isalnum() else "_" for c in self.filename])
 
-                # Lê o arquivo
                 data, sr = sf.read(file_name, always_2d=True)
                 self.sr = sr
-                
-                # Converte para int16 (formato do ESP32Synth)
                 self.raw_data_int16 = (data * 32767).astype(np.int16)
-                # Mixdown para mono (para visualização e geração)
                 data_mono_float = np.mean(data, axis=1)
                 self.raw_data_int16_mono = np.mean(self.raw_data_int16, axis=1).astype(np.int16)
                 
                 frames = len(data)
                 duration = frames / sr
                 
-                # Atualiza label usando a tradução
-                self.lbl_info.setText(t["file_info"].format(
-                    os.path.basename(file_name), sr, frames, duration
-                ))
+                self.lbl_info.setText(t["file_info"].format(os.path.basename(file_name), sr, frames, duration))
                 
                 self.waveform.setData(data_mono_float)
                 self.spin_start.setMaximum(frames - 1)
@@ -455,7 +473,6 @@ class MainWindow(QMainWindow):
                 self.combo_mode.setCurrentIndex(0) 
                 self.on_loop_mode_changed(0)
                 
-                # Re-inicializa o mixer com a taxa de amostragem do arquivo
                 try:
                     pygame.mixer.quit()
                     pygame.mixer.init(frequency=self.sr, size=-16, channels=1, buffer=512)
@@ -474,7 +491,9 @@ class MainWindow(QMainWindow):
         self.waveform.setLoopEnabled(is_looping)
         if not is_looping:
             self.spin_start.setValue(0)
-            self.spin_end.setValue(len(self.raw_data_int16_mono))
+            if self.raw_data_int16_mono is not None:
+                self.spin_end.setValue(len(self.raw_data_int16_mono))
+        self.generate_code() # Atualiza C++ ao mudar loop
 
     def on_spinbox_changed(self):
         start = self.spin_start.value()
@@ -482,6 +501,7 @@ class MainWindow(QMainWindow):
         if start >= end:
              self.spin_start.setValue(end - 1)
         self.waveform.setLoopPoints(self.spin_start.value(), self.spin_end.value())
+        self.generate_code() # Atualiza C++ ao arrastar
 
     def update_spinboxes_from_waveform(self, start, end):
         self.spin_start.blockSignals(True)
@@ -490,6 +510,7 @@ class MainWindow(QMainWindow):
         self.spin_end.setValue(end)
         self.spin_start.blockSignals(False)
         self.spin_end.blockSignals(False)
+        self.generate_code()
 
     def play_audio(self):
         if self.raw_data_int16_mono is None: return
@@ -499,27 +520,20 @@ class MainWindow(QMainWindow):
         start = self.spin_start.value()
         end = self.spin_end.value()
         
-        # --- LÓGICA DE PLAYBACK: ATAQUE -> LOOP ---
-        if loop_mode_idx > 0: # Tem Loop
+        if loop_mode_idx > 0: 
             attack_part = self.raw_data_int16_mono[0:start]
             loop_part = self.raw_data_int16_mono[start:end]
-            
             if len(loop_part) == 0: return
-
-            # Repete o loop para durar pelo menos uns 10 segundos de preview
-            required_samples = self.sr * 15 # 15 segundos
+            required_samples = self.sr * 15
             repeats = int(required_samples / len(loop_part)) + 1
-            if repeats > 100: repeats = 100 # Limite de segurança
-            
+            if repeats > 100: repeats = 100 
             full_loop_sequence = np.tile(loop_part, repeats)
             preview_data = np.concatenate((attack_part, full_loop_sequence))
         else:
-            # Sem Loop: Toca o arquivo inteiro
             preview_data = self.raw_data_int16_mono
 
         if len(preview_data) == 0: return
 
-        # Fix Mono vs Stereo no mixer
         mixer_channels = pygame.mixer.get_init()[2]
         if mixer_channels == 2 and preview_data.ndim == 1:
             preview_data = np.repeat(preview_data[:, np.newaxis], 2, axis=1)
@@ -528,15 +542,11 @@ class MainWindow(QMainWindow):
         try:
             self.current_sound = pygame.sndarray.make_sound(sound_array)
             self.current_sound.play()
-            
-            # Inicia o Timer para atualizar o cursor visual
             self.playback_start_time = time.time()
             self.is_playing = True
             self.timer.start()
-            
         except Exception as e:
             print(f"Erro no playback: {e}")
-            self.lbl_info.setText(f"Erro de Playback: {e}")
 
     def update_playback_cursor(self):
         if not self.is_playing or not self.raw_data_int16_mono is not None:
@@ -544,16 +554,13 @@ class MainWindow(QMainWindow):
 
         elapsed_time = time.time() - self.playback_start_time
         played_samples = int(elapsed_time * self.sr)
-        
         loop_mode_idx = self.combo_mode.currentIndex()
         
         if loop_mode_idx > 0:
             loop_start = self.spin_start.value()
             loop_end = self.spin_end.value()
             loop_len = loop_end - loop_start
-            
             if loop_len <= 0: return
-
             if played_samples < loop_start:
                 visual_pos = played_samples
             else:
@@ -577,27 +584,61 @@ class MainWindow(QMainWindow):
         self.is_playing = False
         self.waveform.setCursorPos(-1)
 
+    # LÓGICA DE GERAÇÃO E COMPRESSÃO BRUTA
     def generate_code(self):
         if self.raw_data_int16_mono is None: return
 
         var_name = self.filename
+        bit_mode = self.combo_bitdepth.currentIndex()
+        data = self.raw_data_int16_mono
+
         data_str = f"// Arquivo: {os.path.basename(self.filepath)}\n"
-        data_str += f"// Taxa: {self.sr} Hz | Samples: {len(self.raw_data_int16_mono)}\n"
-        data_str += f"const int16_t {var_name}_data[] = {{\n"
-        
-        line = "    "
-        for i, sample in enumerate(self.raw_data_int16_mono):
-            line += f"{sample}, "
-            if (i + 1) % 16 == 0:
-                data_str += line + "\n"
-                line = "    "
-        data_str += line + "\n};\n"
-        data_str += f"const uint32_t {var_name}_len = {len(self.raw_data_int16_mono)};\n"
+        data_str += f"// Taxa: {self.sr} Hz | Tamanho Físico (Frames): {len(data)}\n"
+
+        if bit_mode == 0: # 16-bit
+            arr = data
+            enum_type = "BITS_16"
+            data_str += f"// Formato: 16-Bit PCM\nconst int16_t {var_name}_data[] = {{\n    "
+            for i, val in enumerate(arr):
+                data_str += f"{val},"
+                if (i + 1) % 16 == 0: data_str += "\n    "
+                else: data_str += " "
+                
+        elif bit_mode == 1: # 8-bit
+            arr = (data // 256) + 128
+            arr = np.clip(arr, 0, 255).astype(np.uint8)
+            enum_type = "BITS_8"
+            data_str += f"// Formato: 8-Bit PCM (Otimizado)\nconst uint8_t {var_name}_data[] = {{\n    "
+            for i, val in enumerate(arr):
+                data_str += f"0x{val:02X},"
+                if (i + 1) % 16 == 0: data_str += "\n    "
+                else: data_str += " "
+
+        elif bit_mode == 2: # 4-bit empacotado
+            arr = (data // 4096) + 8
+            arr = np.clip(arr, 0, 15).astype(np.uint8)
+            enum_type = "BITS_4"
+            
+            packed =[]
+            for i in range(0, len(arr), 2):
+                val1 = arr[i]
+                val2 = arr[i+1] if i+1 < len(arr) else 8
+                packed_byte = (val1 & 0x0F) | ((val2 & 0x0F) << 4)
+                packed.append(packed_byte)
+                
+            data_str += f"// Formato: 4-Bit Embalado (Alta Compressão)\nconst uint8_t {var_name}_data[] = {{\n    "
+            for i, val in enumerate(packed):
+                data_str += f"0x{val:02X},"
+                if (i + 1) % 16 == 0: data_str += "\n    "
+                else: data_str += " "
+
+        data_str += "\n};\n"
+        data_str += f"const uint32_t {var_name}_len = {len(data)};\n"
         data_str += f"const uint32_t {var_name}_rate = {self.sr};\n"
         
         self.txt_data.setPlainText(data_str)
 
-        loop_mode_enum = ["LOOP_OFF", "LOOP_FORWARD", "LOOP_PINGPONG", "LOOP_REVERSE"][self.combo_mode.currentIndex()]
+        loop_mode_enum =["LOOP_OFF", "LOOP_FORWARD", "LOOP_PINGPONG", "LOOP_REVERSE"][self.combo_mode.currentIndex()]
         loop_start_val = self.spin_start.value()
         loop_end_val = self.spin_end.value()
         if loop_end_val >= len(self.raw_data_int16_mono):
@@ -611,10 +652,39 @@ class MainWindow(QMainWindow):
         inst_str += f"Instrument_Sample inst_{var_name} = {{\n"
         inst_str += f"    zonas_{var_name}, 1, {loop_mode_enum}, {loop_start_val}, {loop_end_val}\n"
         inst_str += "};\n\n"
-        inst_str += f"// synth.registerSample(0, {var_name}_data, {var_name}_len, {var_name}_rate, c4);\n"
+        inst_str += f"// O último argumento define os bits para o ESP32Synth descomprimir instantaneamente!\n"
+        inst_str += f"// synth.registerSample(0, {var_name}_data, {var_name}_len, {var_name}_rate, c4, {enum_type});\n"
         inst_str += f"// synth.setInstrument(0, &inst_{var_name});\n"
 
         self.txt_instrument.setPlainText(inst_str)
+
+    def export_h_file(self):
+        data_text = self.txt_data.toPlainText()
+        inst_text = self.txt_instrument.toPlainText()
+        t = TRANSLATIONS[self.cur_lang]
+        
+        if not data_text or not inst_text:
+            QMessageBox.warning(self, "Aviso", t["export_empty"])
+            return
+
+        file_path, _ = QFileDialog.getSaveFileName(self, t["dlg_export"], f"{self.filename}.h", "C/C++ Header Files (*.h)")
+        
+        if file_path:
+            name_upper = self.filename.upper()
+            try:
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write(f"#ifndef {name_upper}_H\n")
+                    f.write(f"#define {name_upper}_H\n\n")
+                    f.write("#include <Arduino.h>\n")
+                    f.write('#include "ESP32Synth.h"\n\n')
+                    f.write(data_text)
+                    f.write("\n")
+                    f.write(inst_text)
+                    f.write(f"\n#endif // {name_upper}_H\n")
+                
+                QMessageBox.information(self, "Sucesso", t["export_success"].format(file_path))
+            except Exception as e:
+                QMessageBox.critical(self, "Erro", f"Erro ao salvar arquivo:\n{e}")
 
     def apply_dark_theme(self):
         palette = QPalette()

@@ -147,6 +147,9 @@
 #define fs10 2367964
 #define g10 2508771
 
+// #define c-0 -0 = https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQpkN1AWDfISKkhZHf-QIzYMcOnr9429rL2nA&s
+
+// Acho que ninguém usa isso, mas fica aqui pra quem quiser:
 inline uint32_t midiToFreq(uint8_t note) {
     return (uint32_t)(44000.0 * pow(2.0, (note - 69) / 12.0));
 }
