@@ -1,4 +1,4 @@
-# ESP32Synth v2.4.0 — Professional Audio Synthesis Engine
+# ESP32Synth v2.4.0 — Ultra-Fast Bare-Metal Synth Engine for Maximum Polyphony
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/danilogcrf2-oss/ESP32Synth/main/banner.jpg" alt="ESP32Synth banner" width="100%">
@@ -11,9 +11,9 @@
   <img src="https://img.shields.io/badge/performance-extreme-red.svg" alt="Performance">
 </p>
 
-**[English]** A high-performance, polyphonic audio synthesis library for the ESP32. Engineered for professional applications requiring extreme optimization, zero-latency audio, massive polyphony (up to 350+ voices), custom DSP hooks, and direct SD card audio streaming.
+**[English]** A high-performance, polyphonic audio synthesis library for the ESP32. Engineered for applications requiring extreme optimization, zero-latency audio, massive polyphony (up to 350+ voices), custom DSP hooks, and direct SD card audio streaming.
 
-**[Português]** Uma biblioteca de síntese de áudio polifônica de extrema performance para o ESP32. Projetada para aplicações profissionais que exigem otimização brutal, zero latência, polifonia massiva (até 350+ vozes), injeção de efeitos DSP customizados e streaming direto do cartão SD.
+**[Português]** Uma biblioteca de síntese de áudio polifônica de extrema performance para o ESP32. Projetada para aplicaçõesque exigem otimização brutal, zero latência, polifonia massiva (até 350+ vozes), injeção de efeitos DSP customizados e streaming direto do cartão SD.
 
 > *"Se Deus não existisse, esse projeto também não existiria. Tudo só foi possível por causa d'Ele."*
 
@@ -51,7 +51,7 @@
 
 ## 1. Overview & Key Features
 
-**ESP32Synth** is not just a simple beep generator; it's a full-fledged, studio-grade mixing and synthesis engine written bare-metal over the ESP-IDF.
+**ESP32Synth** is not just a simple beep generator; it's a full-fledged, mixing and synthesis engine written bare-metal over the ESP-IDF.
 
 * **Extreme Polyphony:** Comfortably supports **80 simultaneous voices** out of the box, with an engine capable of pushing up to **350 voices** if needed.
 * **Low-Level Access (NEW):** A powerful *Hooks* system (`setCustomDSP`, `setCustomWave`, `setCustomControl`) allowing you to inject your own effect algorithms (Reverb, Delays) and waveforms directly into the I2S render loop.
@@ -474,7 +474,7 @@ Com a versão 2.4.0, o **ESP32Synth** abriu seu núcleo de processamento para vo
 Usando `setCustomDSP`, você intercepta o buffer de mixagem final de 32-bits ANTES dele ser enviado para o DAC. 
 **Atenção:** Este código roda 48.000 vezes por segundo. Ele precisa ser brutalmente otimizado! Não use o operador de módulo (`%`) para dar a volta em buffers e fuja dos `floats`.
 
-Aqui está um exemplo prático de um **Reverb de Fita Profissional com Saturação Analógica e DC Blocker**:
+Aqui está um exemplo prático de um **Reverb de Fita com Saturação Analógica e DC Blocker**:
 
 ```cpp
 #define TAPE_LEN 20000 
@@ -635,4 +635,4 @@ Dentro da pasta `tools/` deste repositório, você encontra scripts Python proje
 *   **Módulo reiniciando do nada (Deadlock):** Ao desligar o synth usando `synth.end()`, aguarde cerca de 50ms (via `vTaskDelay`) antes de destruir ou reiniciar instâncias pesadas. O RTOS do ESP-IDF necessita de alguns ciclos livres para soltar os *mutexes* das tasks I2S com segurança. A biblioteca trata a maior parte disso, mas seja cauteloso ao desconectar pinos em tempo de execução.
 
 ---
-<p align="center"><i>Construído com paixão, muito café e matemática pesadamente otimizada. ❤️</i></p>
+<p align="center"><i>Construído com paixão, muito café e matemática otimizada. ❤️</i></p>
