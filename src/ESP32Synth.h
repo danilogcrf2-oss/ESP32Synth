@@ -2,17 +2,23 @@
  * @file ESP32Synth.h //queria colocar um nome mais unico, mas quando postei pela primeira vez nem pensei.
  * @author Danilo Gabriel
  * @brief Versatile, polyphonic synthesizer library for ESP32 microcontrollers.
- * @version 2.4.0
+ * @version 2.4.1
  */
- 
+
+#pragma once
 #ifndef ESP32_SYNTH_H
 #define ESP32_SYNTH_H
 
 #include <Arduino.h>
 #include <math.h>
 #include <FS.h>
+#include "esp_heap_caps.h" 
 #include "driver/i2s_pdm.h"
 #include "driver/i2s_std.h"
+#include "driver/ledc.h"
+#if __has_include("driver/gptimer.h")
+#include "driver/gptimer.h"
+#endif
 #include "ESP32SynthNotes.h"
 
 #if defined(CONFIG_IDF_TARGET_ESP32)
@@ -27,43 +33,40 @@
     #define SYNTH_CHIP "Generic ESP32"
 #endif
 
+// Please refer to ESP32Synth_Config.hpp for configuration options and notes on performance trade-offs.
+#include "ESP32Synth_Config.hpp"
 
-// Core Synth Limits
+/*
+    About SMODEs (Audio Output Modes):
 
-// /* // default:
-#define MAX_VOICES 80 // ram safe max 140, default 80, max 350, jitter and FreeRTOS no time for tasks 364
-#define MAX_WAVETABLES 100 // default 100
-#define MAX_SAMPLES 100 // default 100
-#define MAX_ARP_NOTES 16 // default 16
-#define MAX_STREAMS 4 // Max concurrent SD streams (RAM/CPU limited).
-#define STREAM_BUF_SAMPLES 0 // Ring buffer size (Must be power of 2).
-// */ 
+    - SMODE_I2S: Standard I2S output. Best for overall audio quality and lowest CPU usage, 
+      but requires an external DAC module (like the PCM5102A) and multiple pins (BCK, WS, DATA). 
+      Supports both 16-bit and 32-bit depth.
 
- /* // Low ram usage (for LVGL, hi ram usage libs):
-#define MAX_VOICES 1 
-#define MAX_WAVETABLES 1 
-#define MAX_SAMPLES 1
-#define MAX_ARP_NOTES 5 
-#define MAX_STREAMS 1 
-#define STREAM_BUF_SAMPLES 2048 
-// */
-// ====================================================================================
-//    SINE WAVE LOOK-UP TABLE
-// ====================================================================================
-#define SINE_LUT_SIZE 4096
-#define SINE_LUT_MASK (SINE_LUT_SIZE - 1)
-#define SINE_SHIFT    20
+    - SMODE_DAC: Uses the built-in DAC channels. Only available on the classic ESP32 
+      (specifically GPIO25 and GPIO26) and is limited to 8-bit output. It is the simplest 
+      option for single-pin audio on older boards, but lacks high fidelity and is not 
+      available on newer chips like the ESP32-S3.
 
-// Shared sine LUT
-extern int16_t sineLUT[SINE_LUT_SIZE];
+    - SMODE_PDM: Pulse-Density Modulation. Outputs a high-frequency 16-bit bitstream to a 
+      single pin (requires a simple RC filter). Highly recommended for the ESP32-S3 and newer chips, 
+      but not recommended for the classic ESP32 due to high noise and distortion.
 
-#define STREAM_BUF_MASK (STREAM_BUF_SAMPLES - 1)
-#define ENV_MAX 268435456 
+    - SMODE_PWM: Uses the LEDC hardware to generate a high-frequency PWM signal on a single pin. 
+      Powered by a bare-metal, auto-synchronized hardware interrupt, it delivers jitter-free, 
+      clear 10-bit audio at 48kHz. It works flawlessly on both classic ESP32 and ESP32-S3, 
+      making it the absolute best single-pin alternative when you don't have an external I2S DAC. 
+      Just add a simple RC filter (Resistor + Capacitor) to the output pin! 
+      (i personally don't use the RC filter... it's good enough for me without it, but for best results you should add it).
+
+*/
 
 enum SynthOutputMode : uint8_t {
-    SMODE_PDM, // PDM is not recomended on ESP32 due to high noise and distortion. Recomended for ESP32-S3 and newer.
+    SMODE_PDM,
     SMODE_I2S,
-    SMODE_DAC  
+    SMODE_DAC,
+    SMODE_PWM,   // <--- New! Alternative for PDM.
+    SMODE_CUSTOM  
 };
 
 enum WaveType : int8_t {
@@ -166,11 +169,18 @@ struct Voice;
 typedef void (*SynthCustomWaveCallback)(Voice* vo, int32_t* mixBuffer, int samples, int32_t startEnv, int32_t envStep);
 
 struct Voice {
+    // 64-bit (Maior alinhamento primeiro: 8 bytes)
     uint64_t           samplePos1616;
+    int64_t            slideVolCurr;
+    int64_t            slideVolInc;
+
+    // Ponteiros (No ESP32 equivalem a 32-bit: 4 bytes)
     const void*        wtData;
     Instrument*        inst;
     Instrument_Sample* instSample;
     SynthCustomWaveCallback customWaveFunc;
+
+    // 32-bit (4 bytes)
     uint32_t           phase;
     uint32_t           phaseInc;
     uint32_t           currEnvVal;
@@ -194,17 +204,19 @@ struct Voice {
     uint32_t           slideFreqTargetInc;
     uint32_t           slideFreqTargetCenti;
     uint32_t           slideVolTicksRemaining;
-    int64_t            slideVolCurr;
     uint32_t           arpTickCounter;
     uint32_t           sampleLoopStart;
     uint32_t           sampleLoopEnd;
     uint32_t           streamFracAccum;
-    uint32_t           arpNotes[MAX_ARP_NOTES];
     int32_t            vibOffset;
     int32_t            slideFreqDeltaInc;
     int32_t            slideFreqRem;
     int32_t            slideFreqRemAcc;
-    int64_t            slideVolInc;
+    
+    // Arrays grandes
+    uint32_t           arpNotes[MAX_ARP_NOTES]; 
+
+    // 16-bit (2 bytes)
     uint16_t           trmDepth;
     uint16_t           trmModGain;
     uint16_t           currWaveId;
@@ -215,23 +227,25 @@ struct Voice {
     uint16_t           arpSpeedMs;
     uint16_t           curSampleId;
     uint16_t           startPhase;  
+    uint16_t           vol;
+    uint16_t           slideVolTarget;
     int16_t            noiseSample;
     int16_t            streamTrackId;
     int16_t            lastStreamSample;
-    uint16_t           vol;
-    uint16_t           slideVolTarget;
+
+    // 8-bit, Bools e Enums (1 byte) -> Vão pro final para se aglomerarem
     EnvState           envState;
     WaveType           type;
+    WaveType           currWaveType;
+    WaveType           nextWaveType;
     BitDepth           depth;
+    LoopMode           sampleLoopMode;
     uint8_t            stageIdx;
     uint8_t            currWaveIsBasic;
     uint8_t            nextWaveIsBasic;
-    WaveType           currWaveType;
-    WaveType           nextWaveType;
     uint8_t            morph;
     uint8_t            arpLen;
     uint8_t            arpIdx;
-    LoopMode           sampleLoopMode;
     bool               active;
     bool               slideFreqActive;
     bool               slideVolActive;
@@ -244,14 +258,24 @@ class ESP32Synth {
 public:
     ESP32Synth();
     ~ESP32Synth();
+    
+    // --- Custom Hooks Definitions ---
+    typedef void (*SynthDSPCallback)(int32_t* mixBuffer, int numSamples);
+    typedef void (*SynthControlCallback)();
+    typedef void (*SynthCustomOutputCallback)(int16_t* samples, int numSamples);
 
     // --- Initialization & System ---
     void end();
     bool begin(int dacPin);
     bool begin(int bckPin, int wsPin, int dataPin);
     bool begin(int bckPin, int wsPin, int dataPin, I2S_Depth i2sDepth);
+    bool begin(int bckPin, int wsPin, int dataPin, int mclkPin, I2S_Depth i2sDepth);
     bool begin(int dataPin, SynthOutputMode mode, int clkPin, int wsPin, I2S_Depth i2sDepth);
-    void setSampleRate(uint32_t rate);
+    bool begin(int dataPin, SynthOutputMode mode, int clkPin, int wsPin, int mclkPin, I2S_Depth i2sDepth);
+
+    bool beginCustom(uint32_t sampleRate = 48000, SynthCustomOutputCallback customOutput = nullptr);
+
+    void setSampleRate(uint32_t rate); // EXPERIMENTAL, Use at your own risk. Changing sample rate may cause instability.
     void setControlRateHz(uint16_t hz);
     void setMasterVolume(uint16_t volume);
     void setVolDepthBase(uint8_t bits);
@@ -261,11 +285,13 @@ public:
     int32_t getSampleRate();
 
     // --- Custom Hooks ---
-    typedef void (*SynthDSPCallback)(int32_t* mixBuffer, int numSamples);
-    typedef void (*SynthControlCallback)();
-    
     void setCustomDSP(SynthDSPCallback dspFunc);
     void setCustomControl(SynthControlCallback ctrlFunc);
+    void setCustomOutput(SynthCustomOutputCallback outFunc);
+
+    // --- Costum Output ---
+    void generateSamples(int16_t* outBuffer, int numSamples);
+    void generateSamplesStereo(int16_t* outBufferLR, int numSamplePairs);
 
     // --- Core Voice Control ---
     void noteOn(uint16_t voice, uint32_t freqCentiHz, uint16_t volume);
@@ -338,6 +364,19 @@ public:
     uint32_t getPhase(uint16_t voice);
     uint32_t getPulseWidth(uint16_t voice);
 
+    // --- Performance & Debug ---
+    float getCPULoad(); // Retorna de 0.0 a 100.0%
+
+    // --- PWM ---
+    volatile bool _running = false;
+    int16_t* pwm_ping_pong_buf[2] = {nullptr, nullptr};
+    volatile int pwm_active_buf = 0;
+    volatile int pwm_read_idx = 0;
+    uint32_t pwm_block_samples = 0;
+    SemaphoreHandle_t pwm_sema = NULL;
+    void* pwm_timer = NULL; 
+
+
 private:
     struct WavetableEntry {
         const void* data;
@@ -348,7 +387,6 @@ private:
     StreamTrack   streams[MAX_STREAMS];
     TaskHandle_t  streamTaskHandle = NULL;
     TaskHandle_t  audioTaskHandle = NULL;
-    volatile bool _running = false;
     static void   sdLoaderTask(void* param);
     bool parseWavHeader(fs::File& file, uint32_t& outSampleRate, uint32_t& outDataPos, uint32_t& outDataSize, uint16_t& outChannels, uint16_t& outBits);
     
@@ -378,15 +416,22 @@ private:
     int _dataPin = -1;
     int _bckPin = -1;
     int _wsPin = -1;
+    int _mclkPin = -1;
 
     static void audioTask(void* param);
-    void render(void* buffer, int samples);
+    void render(void* buffer, int32_t* mixBuffer, int samples);
     void renderLoop();
     void processControl();
     int16_t fetchWavetableSample(uint16_t id, uint32_t phase);
 
     SynthDSPCallback     _customDSP = nullptr;
     SynthControlCallback _customControl = nullptr;
+    SynthCustomOutputCallback _customOutput = nullptr;
+
+    // --- Performance Measurement --- 
+    volatile float _dspLoad = 0.0f;
+
+    
     
 };
 
