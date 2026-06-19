@@ -1,6 +1,12 @@
 #ifndef ESP32_SYNTH_NOTES_H
 #define ESP32_SYNTH_NOTES_H
-#include <Arduino.h>
+
+#if defined(ARDUINO)
+    #include <Arduino.h>
+#else
+    #include <stdint.h>
+    #include <math.h>
+#endif
 
 // Centi-Hz (Hz * 100)
 #define c0 1635

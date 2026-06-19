@@ -1,0 +1,1 @@
+You'll only need one CYD. If you want higher sound quality, use a PCM5102A DAC on the code pins.

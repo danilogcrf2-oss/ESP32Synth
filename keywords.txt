@@ -1,9 +1,9 @@
 #######################################
-# Syntax Coloring Map for ESP32Synth
+# Syntax Coloring Map for ESP32Synth (v2.4.2)
 #######################################
 
 #######################################
-# Datatypes (KEYWORD1)
+# Datatypes and Classes (KEYWORD1)
 #######################################
 
 ESP32Synth	KEYWORD1
@@ -22,34 +22,40 @@ LoopMode	KEYWORD1
 SynthCustomWaveCallback	KEYWORD1
 SynthDSPCallback	KEYWORD1
 SynthControlCallback	KEYWORD1
+SynthCustomOutputCallback	KEYWORD1
 
 #######################################
 # Methods and Functions (KEYWORD2)
 #######################################
 
 begin	KEYWORD2
+beginCustom	KEYWORD2
 end	KEYWORD2
+setSampleRate	KEYWORD2
 setControlRateHz	KEYWORD2
 setVolDepthBase	KEYWORD2
 setMasterBitcrush	KEYWORD2
 setMasterVolume	KEYWORD2
-getMasterVolume	KEYWORD2
-getChipModel	KEYWORD2
-getSampleRate	KEYWORD2
 setCustomDSP	KEYWORD2
 setCustomControl	KEYWORD2
+setCustomOutput	KEYWORD2
+generateSamples	KEYWORD2
+generateSamplesStereo	KEYWORD2
 noteOn	KEYWORD2
 noteOff	KEYWORD2
 setFrequency	KEYWORD2
 setVolume	KEYWORD2
 setWave	KEYWORD2
+setPulseWidthBitDepth	KEYWORD2
 setPulseWidth	KEYWORD2
 setCustomWave	KEYWORD2
 setEnv	KEYWORD2
 setStartPhase	KEYWORD2
 setCurrentPhase	KEYWORD2
 setVibrato	KEYWORD2
+setVibratoPhase	KEYWORD2
 setTremolo	KEYWORD2
+setTremoloPhase	KEYWORD2
 slideFreq	KEYWORD2
 slideFreqTo	KEYWORD2
 slideVol	KEYWORD2
@@ -86,14 +92,20 @@ getEnvState	KEYWORD2
 getWaveType	KEYWORD2
 getPhase	KEYWORD2
 getPulseWidth	KEYWORD2
+getCPULoad	KEYWORD2
+getMasterVolume	KEYWORD2
+getChipModel	KEYWORD2
+getSampleRate	KEYWORD2
 
 #######################################
-# Constants (LITERAL1)
+# Constants and Enumerations (LITERAL1)
 #######################################
 
 SMODE_PDM	LITERAL1
 SMODE_I2S	LITERAL1
 SMODE_DAC	LITERAL1
+SMODE_PWM	LITERAL1
+SMODE_CUSTOM	LITERAL1
 
 WAVE_SINE	LITERAL1
 WAVE_TRIANGLE	LITERAL1
@@ -108,7 +120,7 @@ WAVE_CUSTOM	LITERAL1
 LOOP_OFF	LITERAL1
 LOOP_FORWARD	LITERAL1
 LOOP_PINGPONG	LITERAL1
-LOOP_REVERSE	LITERAL1
+LOOP_REVERSE    LITERAL1
 
 BITS_4	LITERAL1
 BITS_8	LITERAL1
@@ -121,4 +133,4 @@ ENV_IDLE	LITERAL1
 ENV_ATTACK	LITERAL1
 ENV_DECAY	LITERAL1
 ENV_SUSTAIN	LITERAL1
-ENV_RELEASE	LITERAL1
+ENV_RELEASE LITERAL1

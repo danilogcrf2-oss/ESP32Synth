@@ -1,7 +1,8 @@
 #pragma once
+#include "ESP32Synth.h"
 
 uint16_t ESP32Synth::getMasterVolume() {
-    return _masterVolume >> _volShift; // Retorna na exata resolução que o usuário configurou
+    return _masterVolume >> _volShift; // Returns at the exact resolution configured by the user
 }
 
 uint32_t ESP32Synth::getFrequencyCentiHz(uint16_t voice) {
@@ -22,7 +23,7 @@ uint8_t ESP32Synth::getEnv8Bit(uint16_t voice) {
 
 uint8_t ESP32Synth::getOutput8Bit(uint16_t voice) {
     if (voice >= MAX_VOICES) return 0;
-    // Otimizado: Combina Env de 8-bits com Vol realocado para 8-bits
+    // Optimized: combines 8-bit envelope with volume scaled to 8 bits
     return (uint8_t)(((voices[voice].currEnvVal >> 20) * (voices[voice].vol >> 8)) >> 8);
 }
 
@@ -36,7 +37,7 @@ uint32_t ESP32Synth::getEnvRaw(uint16_t voice) {
 
 uint32_t ESP32Synth::getOutputRaw(uint16_t voice) {
     if (voice >= MAX_VOICES) return 0;
-    // 64-bits previne overflow na multiplicação do envelope máximo (32b) com volume interno (16b)
+    // 64-bit prevents overflow when multiplying max envelope (32b) by internal volume (16b)
     return (uint32_t)(((uint64_t)voices[voice].currEnvVal * voices[voice].vol) >> 16);
 }
 

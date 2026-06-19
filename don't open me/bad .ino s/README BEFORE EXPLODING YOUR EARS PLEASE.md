@@ -1,0 +1,1 @@
+I decided to put this folder here, which will be full of poorly made examples with bad AI programming that could damage your eardrums. Nothing here should be listened to unless you're wearing earplugs and prepared to pay a very expensive medical bill. That's why I didn't even want to put it in /examples so nobody would think the ESP32Synth is bad or anything like that.

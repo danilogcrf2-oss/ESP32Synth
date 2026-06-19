@@ -1,0 +1,1 @@
+This folder will be full of errors, problems, or other catastrophically destructive things that I ended up finding while working on the ESP32Synth and its related projects, such as oscilloscope photos, AI hallucinations, destructive code, etc. Please ignore this folder.
