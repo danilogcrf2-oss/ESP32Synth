@@ -6,7 +6,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/version-2.4.2-green.svg" alt="Version">
-  <img src="https://img.shields.io/badge/platform-ESP32%20%7C%20ESP32--S3-orange.svg" alt="Platform">
+  <img src="https://img.shields.io/badge/platform-ESP32 Family-orange.svg" alt="Platform">
   <img src="https://img.shields.io/badge/framework-Arduino%20%7C%20ESP--IDF-blue.svg" alt="Framework">
   <img src="https://img.shields.io/badge/license-MIT-yellow.svg" alt="License">
 </p>
