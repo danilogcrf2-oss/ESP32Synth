@@ -11,7 +11,7 @@
   <img src="https://img.shields.io/badge/license-MIT-yellow.svg" alt="License">
 </p>
 
-A high-performance, polyphonic audio synthesis library for the ESP32 series (including S3). Engineered for extreme bare-metal optimization, zero-latency rendering, massive voice density, custom DSP hooks, and direct filesystem/SD-card streaming. Dual-framework support ensures compilation in both Arduino IDE and VS Code (PlatformIO) under either Arduino or native ESP-IDF.
+A high-performance, polyphonic audio synthesis library for the ESP32 series (including S3 and others). Engineered for extreme bare-metal optimization, zero-latency rendering, massive voice density, custom DSP hooks, and direct filesystem/SD-card streaming. Dual-framework support ensures compilation in both Arduino IDE and VS Code (PlatformIO) under either Arduino or native ESP-IDF.
 
 ---
 
