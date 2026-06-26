@@ -125,7 +125,7 @@ For resource-constrained environments (e.g., when integrating heavy UI framework
 
 ### Latency Optimization & DMA Tuning
 You can calculate the processing latency using this formula:
-$$\text{Latency (ms)} = \frac{\text{Buffer Length} \times \text{Buffer Count}}{\text{Sample Rate}} \times 1000$$
+$$\text{Latency (ms)} = \frac{\text{SYNTH\_DMA\_BUF\_LEN} \times \text{SYNTH\_DMA\_BUF\_COUNT}}{\text{Sample Rate}} \times 1000$$
 
 Configure these definitions directly in your build files or inside `ESP32Synth_Config.hpp` to achieve the required latency characteristics:
 
