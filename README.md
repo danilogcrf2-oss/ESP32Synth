@@ -1,4 +1,4 @@
-# ESP32Synth v2.4.2 — Highly Optimized Bare-Metal Synth Engine for Embedded Polyphony
+# ESP32Synth v2.4.3 — Highly Optimized Bare-Metal Synth Engine for Embedded Polyphony
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/danilogcrf2-oss/ESP32Synth/main/banner.jpg" alt="ESP32Synth banner" width="100%">
