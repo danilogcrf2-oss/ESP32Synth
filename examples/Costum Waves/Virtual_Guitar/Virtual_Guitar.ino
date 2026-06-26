@@ -24,10 +24,15 @@
 #include <ESP32SynthNotes.h>
 #include <esp_heap_caps.h>
 
-// --- I2S DAC PINS ---
+#ifdef (CONFIG_IDF_TARGET_ESP32S3)
+#define I2S_BCK_PIN  4
+#define I2S_WS_PIN   6
+#define I2S_DATA_PIN 5
+#else
 #define I2S_BCK_PIN  4
 #define I2S_WS_PIN   15
 #define I2S_DATA_PIN 2
+#endif
 
 ESP32Synth synth;
 
@@ -35,7 +40,7 @@ ESP32Synth synth;
 // 1. EXTENDED KARPLUS-STRONG ENGINE
 // ====================================================================================
 #define MAX_GUITAR_STRINGS 8
-#define KS_BUFFER_SIZE 1024
+#define KS_BUFFER_SIZE 2048 // Power of 2, prevents detuning on low frequencies
 
 static int16_t** ks_delay_lines = nullptr;
 static Voice*    active_string_ptrs[MAX_GUITAR_STRINGS] = {nullptr};
@@ -48,12 +53,9 @@ void IRAM_ATTR renderGuitarVoice(Voice* vo, int32_t* mixBuffer, int samples, int
     }
     if (stringIdx == -1) stringIdx = 0;
 
-    int16_t* delayLine = ks_delay_lines[stringIdx];
+    int16_t* __restrict__ delayLine = ks_delay_lines[stringIdx];
     
-    // cw[0]: Init Flag
-    // cw[1]: Period
-    // cw[2]: Index
-    // cw[3]: Last Sample
+    // cw[0]: Init Flag | cw[1]: Period | cw[2]: Index | cw[3]: Last Sample
     if (vo->cw[0] == 0) { 
         uint32_t period = (4800000 / vo->freqVal); 
         if (period > KS_BUFFER_SIZE - 1) period = KS_BUFFER_SIZE - 1;
@@ -75,7 +77,7 @@ void IRAM_ATTR renderGuitarVoice(Voice* vo, int32_t* mixBuffer, int samples, int
             noise = (noise * pick_energy) >> 15;
             if (pick_energy > pick_decay) pick_energy -= pick_decay; else pick_energy = 0;
 
-            if (i < 3 && period < 150) noise += 24000; // Add pick transient to high notes
+            if (i < 3 && period < 150) noise += 24000; // Add pick transient
 
             lp += ((noise - lp) * lp_coef) >> 8; 
             delayLine[i] = (int16_t)(lp); 
@@ -84,33 +86,56 @@ void IRAM_ATTR renderGuitarVoice(Voice* vo, int32_t* mixBuffer, int samples, int
         vo->cw[0] = 1;
     }
 
-    uint32_t period = vo->cw[1];
+    const uint32_t period = vo->cw[1];
     uint32_t idx    = vo->cw[2];
     int32_t  lastS  = vo->cw[3];
     int32_t  currentEnv = startEnv;
-    int32_t  volBase    = ((uint32_t)vo->vol * vo->trmModGain) >> 8;
+    const int32_t  volBase = ((uint32_t)vo->vol * vo->trmModGain) >> 8;
 
-    int32_t decay_factor = (vo->envState == ENV_RELEASE) ? 210 : 255; // Palm mute physical damping
-    int32_t stretch      = (period < 150) ? 170 : 150; 
+    const int32_t decay_factor = (vo->envState == ENV_RELEASE) ? 210 : 255; 
+    const int32_t stretch      = (period < 150) ? 170 : 150; 
+    const int32_t inv_stretch  = 256 - stretch;
 
-    for (int i = 0; i < samples; i++) {
-        int16_t currentS = delayLine[idx];
-        
-        int32_t filtered = ((currentS * stretch) + (lastS * (256 - stretch))) >> 8;
-        int32_t newVal   = (filtered * decay_factor) >> 8; 
-        
-        delayLine[idx] = newVal;
-        lastS = newVal;
-        
-        idx++;
-        if (idx >= period) idx = 0;
-
+    // OPTIMIZATION: Inner loop split (Zero envelope overhead during sustain)
+    if (envStep == 0) {
         int32_t envSafe  = currentEnv >> 14;
         envSafe         &= ~(envSafe >> 31);
         int32_t finalVol = (int32_t)((envSafe * volBase) >> 14);
 
-        mixBuffer[i] += (currentS * finalVol) >> 16;
-        if (envStep != 0) currentEnv += envStep;
+        for (int i = 0; i < samples; i++) {
+            int16_t currentS = delayLine[idx];
+            
+            int32_t filtered = ((currentS * stretch) + (lastS * inv_stretch)) >> 8;
+            int32_t newVal   = (filtered * decay_factor) >> 8; 
+            
+            delayLine[idx] = (int16_t)newVal;
+            lastS = newVal;
+            
+            idx++;
+            if (idx >= period) idx = 0;
+
+            mixBuffer[i] += (currentS * finalVol) >> 16;
+        }
+    } else {
+        for (int i = 0; i < samples; i++) {
+            int16_t currentS = delayLine[idx];
+            
+            int32_t filtered = ((currentS * stretch) + (lastS * inv_stretch)) >> 8;
+            int32_t newVal   = (filtered * decay_factor) >> 8; 
+            
+            delayLine[idx] = (int16_t)newVal;
+            lastS = newVal;
+            
+            idx++;
+            if (idx >= period) idx = 0;
+
+            int32_t envSafe  = currentEnv >> 14;
+            envSafe         &= ~(envSafe >> 31);
+            int32_t finalVol = (int32_t)((envSafe * volBase) >> 14);
+
+            mixBuffer[i] += (currentS * finalVol) >> 16;
+            currentEnv += envStep;
+        }
     }
 
     vo->cw[2] = idx;
@@ -125,7 +150,9 @@ bool pedal_distortion = false;
 bool pedal_delay      = false;
 
 #define CHORUS_SIZE 2048
-#define DELAY_SIZE  16000
+#define CHORUS_MASK (CHORUS_SIZE - 1)
+#define DELAY_SIZE  16384   // Adjusted to Power of 2!
+#define DELAY_MASK  (DELAY_SIZE - 1)
 
 static int32_t* chorus_buffer = nullptr;
 static int16_t* delay_buffer  = nullptr;
@@ -150,8 +177,10 @@ void IRAM_ATTR masterPedalboard(int32_t* mixBuffer, int samples) {
             smp = smp + body_lp; 
         } 
         else {
-            // VCA Compressor
-            int32_t rect = abs(smp);
+            // VCA Compressor (Branchless Absolute Value)
+            int32_t mask = smp >> 31;
+            int32_t rect = (smp ^ mask) - mask;
+            
             if (rect > comp_env) comp_env += ((rect - comp_env) * 10) >> 8; 
             else                 comp_env += ((rect - comp_env) * 1) >> 8;  
 
@@ -189,36 +218,32 @@ void IRAM_ATTR masterPedalboard(int32_t* mixBuffer, int samples) {
             smp = cab_lp3; 
         }
 
-        // Chorus
+        // Chorus (Branchless Wrapping O(1))
         if (pedal_chorus) {
             chorus_buffer[chorus_idx] = smp;
             chorus_lfo += 60000; 
             int32_t lfo_val = sineLUT[(chorus_lfo >> SINE_SHIFT) & SINE_LUT_MASK]; 
             
             int32_t mod_delay = 480 + ((lfo_val * 200) >> 15); 
-            int32_t read_idx = chorus_idx - mod_delay;
-            if (read_idx < 0) read_idx += CHORUS_SIZE;
+            int32_t read_idx = (chorus_idx - mod_delay) & CHORUS_MASK;
             
             smp = (smp + chorus_buffer[read_idx]) >> 1; 
-            
-            chorus_idx++;
-            if (chorus_idx >= CHORUS_SIZE) chorus_idx = 0;
+            chorus_idx = (chorus_idx + 1) & CHORUS_MASK;
         }
 
-        // Tape Delay
+        // Tape Delay (Branchless Wrapping O(1))
         if (pedal_delay) {
             int32_t delayed_smp = delay_buffer[delay_idx];
             smp = smp + ((delayed_smp * 102) >> 8); 
             delay_buffer[delay_idx] = (int16_t)(smp >> 1); 
-            delay_idx++;
-            if (delay_idx >= DELAY_SIZE) delay_idx = 0;
+            delay_idx = (delay_idx + 1) & DELAY_MASK;
         } else {
             delay_buffer[delay_idx] = 0; 
-            delay_idx++;
-            if (delay_idx >= DELAY_SIZE) delay_idx = 0;
+            delay_idx = (delay_idx + 1) & DELAY_MASK;
         }
 
-        mixBuffer[i] = smp;
+        // Master Output Protection (Prevents clipping & leaves headroom)
+        mixBuffer[i] = (smp * 180) >> 8;
     }
 }
 
@@ -242,8 +267,9 @@ void setup() {
         while(1);
     }
 
-    synth.setMasterVolume(255);
+    synth.setMasterVolume(200); // 200 instead of 255 gives the DSP safe breathing room
     
+    // Configured natively for ESP32-S3 pins
     if (!synth.begin(I2S_BCK_PIN, I2S_WS_PIN, I2S_DATA_PIN, I2S_32BIT)) {
         Serial.println("Failed to start ESP32Synth!"); 
         while(1);
@@ -255,6 +281,7 @@ void setup() {
     for (int i = 0; i < MAX_GUITAR_STRINGS; i++) {
         synth.setCustomWave(i, renderGuitarVoice);
         synth.setEnv(i, 1, 0, 255, 1000); 
+        synth.setSmoothEnv(i, false); // Crucial for resetting physics properly on noteOn
     }
 }
 

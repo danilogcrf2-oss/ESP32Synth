@@ -35,8 +35,8 @@
 
 // /* // Default:
 #define MAX_VOICES      80   // Max simultaneous voices. (CPU/RAM limited, see note above).
-#define MAX_WAVETABLES  50   // Default 50
-#define MAX_SAMPLES     50   // Default 50
+#define MAX_WAVETABLES  20   // Default 20
+#define MAX_SAMPLES     20   // Default 20
 #define MAX_ARP_NOTES   16   // Default 16
 #define MAX_STREAMS      4   // Max concurrent SD streams (RAM/CPU limited).
 #define STREAM_BUF_SAMPLES 2048 // Ring buffer size (Must be power of 2).
@@ -79,6 +79,10 @@
 #ifndef SYNTH_DMA_BUF_COUNT
 #define SYNTH_DMA_BUF_COUNT 6
 #endif
+
+// Core Task Pinning
+#define SYNTH_SD_TASK_CORE 0 //If any library conflicts, for compatibility with other ESP32s, etc.
+#define SYNTH_AUDIO_TASK_CORE 1 //If any library conflicts, for compatibility with other ESP32s, etc. <-- Not recommended to change
 
 // ====================================================================================
 //    SINE WAVE LOOK-UP TABLE

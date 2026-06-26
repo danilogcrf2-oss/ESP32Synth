@@ -10,7 +10,7 @@ int8_t ESP32Synth::setupStream(uint16_t voice, const char* path, uint32_t rootFr
 
     // Start SD task on-demand
     if (streamTaskHandle == NULL) {
-        xTaskCreatePinnedToCore(sdLoaderTask, "SynthSDTask", 4096, this, 1, &streamTaskHandle, 0);
+        xTaskCreatePinnedToCore(sdLoaderTask, "SynthSDTask", 4096, this, 1, &streamTaskHandle, SYNTH_SD_TASK_CORE);
     }
 
     // Clear existing stream on this voice

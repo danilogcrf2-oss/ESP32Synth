@@ -253,7 +253,7 @@ bool ESP32Synth::begin(int dataPin, SynthOutputMode mode, int clkPin, int wsPin,
 
     // Core 1 on the S3 has less contention from USB CDC or Wi-Fi than Core 0.
     // With the mathematical Phase-Lock solved, Core 1 is the best place of all.
-    if (xTaskCreatePinnedToCore(audioTask, "SynthTask", 4096, this, configMAX_PRIORITIES - 1, &audioTaskHandle, 1) != pdPASS) {
+    if (xTaskCreatePinnedToCore(audioTask, "SynthTask", 4096, this, configMAX_PRIORITIES - 1, &audioTaskHandle, SYNTH_AUDIO_TASK_CORE) != pdPASS) {
         return false;
     }
 
@@ -280,7 +280,7 @@ bool ESP32Synth::beginCustom(uint32_t sampleRate, SynthCustomOutputCallback cust
     // the AudioTask in push mode. If NOT, no task is created — the user pulls data
     // on demand via generateSamples() (pull mode). Ideal for A2DP / Wi-Fi.
     if (customOutput != nullptr) {
-        if (xTaskCreatePinnedToCore(audioTask, "SynthTask", 4096, this, configMAX_PRIORITIES - 1, &audioTaskHandle, 1) != pdPASS) {
+        if (xTaskCreatePinnedToCore(audioTask, "SynthTask", 4096, this, configMAX_PRIORITIES - 1, &audioTaskHandle, SYNTH_AUDIO_TASK_CORE) != pdPASS) {
             return false;
         }
     }
