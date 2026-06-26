@@ -74,7 +74,7 @@
 
 #include "ESP32SynthNotes.h"
 
-#if defined(CONFIG_IDF_TARGET_ESP32)
+#if defined(CONFIG_IDF_TARGET_ESP32) || defined(CONFIG_IDF_TARGET_ESP32S2)
 #include "driver/dac_continuous.h"
 #endif
 
@@ -488,7 +488,7 @@ private:
     void slideVolAbsolute(uint16_t voice, uint16_t startVol16, uint16_t endVol16, uint32_t durationMs);
 
     i2s_chan_handle_t tx_handle = NULL;
-    #if defined(CONFIG_IDF_TARGET_ESP32)
+    #if defined(CONFIG_IDF_TARGET_ESP32) || defined(CONFIG_IDF_TARGET_ESP32S2)
     dac_continuous_handle_t dac_handle = NULL;
     #endif
     SynthOutputMode currentMode = SMODE_PDM;

@@ -5,13 +5,13 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.4.2-green.svg" alt="Version">
-  <img src="https://img.shields.io/badge/platform-ESP32%20%7C%20ESP32--S3-orange.svg" alt="Platform">
+  <img src="https://img.shields.io/badge/version-2.4.3-green.svg" alt="Version">
+  <img src="https://img.shields.io/badge/platform-ESP32%20%7C%20ESP32--S3%20%7C%20ESP32--S2%20%7C%20ESP32--C3%20%7C%20ESP32--C6-orange.svg" alt="Platform">
   <img src="https://img.shields.io/badge/framework-Arduino%20%7C%20ESP--IDF-blue.svg" alt="Framework">
   <img src="https://img.shields.io/badge/license-MIT-yellow.svg" alt="License">
 </p>
 
-A high-performance, polyphonic audio synthesis library for the ESP32 series (including S3). Engineered for extreme bare-metal optimization, zero-latency rendering, massive voice density, custom DSP hooks, and direct filesystem/SD-card streaming. Dual-framework support ensures compilation in both Arduino IDE and VS Code (PlatformIO) under either Arduino or native ESP-IDF.
+A high-performance, polyphonic audio synthesis library for the ESP32 series (including S3, S2, C3, C6, etc.). Engineered for extreme bare-metal optimization, low-latency rendering, massive voice density, custom DSP hooks, and direct filesystem/SD-card streaming. Dual-framework support ensures compilation in both Arduino IDE and VS Code (PlatformIO) under either Arduino or native ESP-IDF.
 
 ---
 
@@ -19,13 +19,15 @@ A high-performance, polyphonic audio synthesis library for the ESP32 series (inc
 
 1. [Architectural Philosophy: Why 500 Voices?](#1-architectural-philosophy-why-500-voices)
 2. [PlatformIO (VS Code) & ESP-IDF Integration](#2-platformio-vs-code--esp-idf-integration)
-3. [Memory Footprint & Hardware Isolation](#3-memory-footprint--hardware-isolation)
-4. [Unified API Reference](#4-unified-api-reference)
-5. [The Power of `SMODE_PWM` (LEDC Bare-Metal Audio)](#5-the-power-of-smode_pwm-ledc-bare-metal-audio)
-6. [Dual-Framework Filesystem Streaming (SD Card)](#6-dual-framework-filesystem-streaming-sd-card)
-7. [External Protocol Pull Mode (A2DP Bluetooth & Wi-Fi)](#7-external-protocol-pull-mode-a2dp-bluetooth--wi-fi)
-8. [Fixed-Point Advanced DSP & Custom Synthesis Blocks](#8-fixed-point-advanced-dsp--custom-synthesis-blocks)
-9. [Development Tools & Advanced Troubleshooting](#9-development-tools--advanced-troubleshooting)
+3. [Multi-Core & Extended Chip Family Support](#3-multi-core--extended-chip-family-support)
+4. [Core Configuration & Latency Tuning](#4-core-configuration--latency-tuning)
+5. [Memory Footprint & Hardware Isolation](#5-memory-footprint--hardware-isolation)
+6. [Unified API Reference](#6-unified-api-reference)
+7. [The Power of `SMODE_PWM` (LEDC Bare-Metal Audio)](#7-the-power-of-smode_pwm-ledc-bare-metal-audio)
+8. [Dual-Framework Filesystem Streaming (SD Card)](#8-dual-framework-filesystem-streaming-sd-card)
+9. [External Protocol Pull Mode (A2DP Bluetooth & Wi-Fi)](#9-external-protocol-pull-mode-a2dp-bluetooth--wi-fi)
+10. [Fixed-Point Advanced DSP & Custom Synthesis Blocks](#10-fixed-point-advanced-dsp--custom-synthesis-blocks)
+11. [Development Tools & Advanced Troubleshooting](#11-development-tools--advanced-troubleshooting)
 
 ---
 
@@ -45,7 +47,7 @@ To implement these blocks, you must maintain this performance philosophy: **use 
 
 ## 2. PlatformIO (VS Code) & ESP-IDF Integration
 
-With **v2.4.2**, PlatformIO integration is native. File system abstractions are unified, allowing you to run identical synth files under both Arduino and ESP-IDF frameworks.
+With **v2.4.3**, PlatformIO integration is native. File system abstractions are unified, allowing you to run identical synth files under both Arduino and ESP-IDF frameworks.
 
 ### PlatformIO Configuration (`platformio.ini`)
 
@@ -76,7 +78,67 @@ build_flags =
 
 ---
 
-## 3. Memory Footprint & Hardware Isolation
+## 3. Multi-Core & Extended Chip Family Support
+
+While ESP32Synth is highly optimized for standard dual-core ESP32 chips operating at 240MHz, its hardware abstraction layers support the broader Espressif chip family, including single-core and RISC-V variants.
+
+### Core Allocation Architectures
+* **Dual-Core SoC (Classic ESP32, ESP32-S3):** The high-priority DSP loop pins directly to Core 1 (`SYNTH_AUDIO_TASK_CORE 1`). This completely isolates the real-time audio thread from application execution, Bluetooth/Wi-Fi processing, or display routines on Core 0, enabling maximum polyphony.
+* **Single-Core SoC (ESP32-S2, ESP32-C3, ESP32-C6, etc.):** The DSP task competes with other application threads[[2](https://www.google.com/url?sa=E&q=https%3A%2F%2Fvertexaisearch.cloud.google.com%2Fgrounding-api-redirect%2FAUZIYQHPzlsqYm2Iw5vQX7g_P1RbrWf7SC47hIz97QpaVQJitngoATo9pv7r3HPG3kRDgvAIMJCZ-vyjRBrKkXCknWo8ICILDRUbqOYfHy9QCAaCp5fKJku4CRC72OOS8NNV9BTmeSTJK3ORhOA3uzo5dyzGKilwQ9C0PdUhCjIwdXUETZO_o0mjl10wDliMCGL_op347xvw7gOBh_Yxz-W_MrB4Lno_hAs6JV5h9DY%3D)]. To maintain stable output, set the CPU frequency to its highest supported state (e.g., 240MHz for S2, 160MHz for C3/C6)[[1](https://www.google.com/url?sa=E&q=https%3A%2F%2Fvertexaisearch.cloud.google.com%2Fgrounding-api-redirect%2FAUZIYQHUYDXZQ0c897rdN3-GMqDE3B1fUCv8QKeogvS2Pyf1_gUGerbgoIw8wSrgpsUzrUnWQ2V6SS52mnffXImNtYerMmfqlc71T3217MZIdHRJafhzHQOsMkqYixk6yplIIJss777G9U5y772MWzHQlv_unY-_y_Fq-3cxU47fYTkqza0z2v7mYq55li0qXkR_1WVBZve05ic%3D)][[4](https://www.google.com/url?sa=E&q=https%3A%2F%2Fvertexaisearch.cloud.google.com%2Fgrounding-api-redirect%2FAUZIYQGlio-mD6gtc-XidfLOcTXfCZQ8ZRDbZL7ywCm_XWQ85kdHe0sv70WN5bHd6_jCHH3WYuXRUlg97mchS4_V_AYqfY8VDmk3PVgAsv2aETBwXKUhfOSOzChi0OSWSUsoxizBg9id8f_4ShPpT3xNZkY7mG38EiaRx5BLsSgJDjMV3soG4HOqjxiCwkA89O0PNvOL4QCHOw%3D%3D)]. Limit polyphony parameters accordingly to avoid thread starvation.
+
+### Hardware Output Mode (`SMODE`) Support Matrix
+
+| Chip Model | SMODE_DAC | SMODE_I2S | SMODE_PDM | SMODE_PWM |
+| :--- | :--- | :--- | :--- | :--- |
+| **Classic ESP32** | Supported (GPIO 25, 26)[[3](https://www.google.com/url?sa=E&q=https%3A%2F%2Fvertexaisearch.cloud.google.com%2Fgrounding-api-redirect%2FAUZIYQEdn11Z2gNboleYuUul6ry7VSUr-JJ-rL6zKNy4GnYKPEwrfXCYUQpQXER_Pkrwow_giFW06JP5FeSxN60hEKZYxRoFIYtEx3OmmX3xXExhioSXLTH8OhjOu2TXSQ%3D%3D)] | Supported | Supported | Supported (High-Speed LEDC) |
+| **ESP32-S3** | Not Available[[3](https://www.google.com/url?sa=E&q=https%3A%2F%2Fvertexaisearch.cloud.google.com%2Fgrounding-api-redirect%2FAUZIYQEdn11Z2gNboleYuUul6ry7VSUr-JJ-rL6zKNy4GnYKPEwrfXCYUQpQXER_Pkrwow_giFW06JP5FeSxN60hEKZYxRoFIYtEx3OmmX3xXExhioSXLTH8OhjOu2TXSQ%3D%3D)] | Supported | Supported (Ideal) | Supported (Low-Speed LEDC)[[5](https://www.google.com/url?sa=E&q=https%3A%2F%2Fvertexaisearch.cloud.google.com%2Fgrounding-api-redirect%2FAUZIYQHPekE_9I96evTRhZl0ZTafZdq37zUmjB1l3CjgbnQFnTTpXmsQZbnqOXGII4tNoN4MKlW8BTI9PG37CDHMVLzVwMM3vPnTJA84-7dr6GLwOyEdt-nxxKCjqXW37w%3D%3D)] |
+| **ESP32-S2** | Supported (GPIO 17, 18)[[4](https://www.google.com/url?sa=E&q=https%3A%2F%2Fvertexaisearch.cloud.google.com%2Fgrounding-api-redirect%2FAUZIYQGlio-mD6gtc-XidfLOcTXfCZQ8ZRDbZL7ywCm_XWQ85kdHe0sv70WN5bHd6_jCHH3WYuXRUlg97mchS4_V_AYqfY8VDmk3PVgAsv2aETBwXKUhfOSOzChi0OSWSUsoxizBg9id8f_4ShPpT3xNZkY7mG38EiaRx5BLsSgJDjMV3soG4HOqjxiCwkA89O0PNvOL4QCHOw%3D%3D)] | Supported | Supported | Supported (Low-Speed LEDC)[[2](https://www.google.com/url?sa=E&q=https%3A%2F%2Fvertexaisearch.cloud.google.com%2Fgrounding-api-redirect%2FAUZIYQHPzlsqYm2Iw5vQX7g_P1RbrWf7SC47hIz97QpaVQJitngoATo9pv7r3HPG3kRDgvAIMJCZ-vyjRBrKkXCknWo8ICILDRUbqOYfHy9QCAaCp5fKJku4CRC72OOS8NNV9BTmeSTJK3ORhOA3uzo5dyzGKilwQ9C0PdUhCjIwdXUETZO_o0mjl10wDliMCGL_op347xvw7gOBh_Yxz-W_MrB4Lno_hAs6JV5h9DY%3D)] |
+| **ESP32-C3 / C6** | Not Available[[3](https://www.google.com/url?sa=E&q=https%3A%2F%2Fvertexaisearch.cloud.google.com%2Fgrounding-api-redirect%2FAUZIYQEdn11Z2gNboleYuUul6ry7VSUr-JJ-rL6zKNy4GnYKPEwrfXCYUQpQXER_Pkrwow_giFW06JP5FeSxN60hEKZYxRoFIYtEx3OmmX3xXExhioSXLTH8OhjOu2TXSQ%3D%3D)] | Supported | Supported | Supported (Low-Speed LEDC)[[1](https://www.google.com/url?sa=E&q=https%3A%2F%2Fvertexaisearch.cloud.google.com%2Fgrounding-api-redirect%2FAUZIYQHUYDXZQ0c897rdN3-GMqDE3B1fUCv8QKeogvS2Pyf1_gUGerbgoIw8wSrgpsUzrUnWQ2V6SS52mnffXImNtYerMmfqlc71T3217MZIdHRJafhzHQOsMkqYixk6yplIIJss777G9U5y772MWzHQlv_unY-_y_Fq-3cxU47fYTkqza0z2v7mYq55li0qXkR_1WVBZve05ic%3D)] |
+
+---
+
+## 4. Core Configuration & Latency Tuning
+
+Static parameters can be directly edited inside `ESP32Synth_Config.hpp` to customize RAM consumption and balance processing latency against overall polyphony stability.
+
+### Resource Allocation Parameters
+```cpp
+// ESP32Synth_Config.hpp Core Limits
+#define MAX_VOICES      80   // Maximum active concurrent synthesis voices.
+#define MAX_WAVETABLES  20   // Maximum register space for custom wavetables.
+#define MAX_SAMPLES     20   // Maximum registers for loaded RAM samples.
+#define MAX_ARP_NOTES   16   // Maximum steps per individual voice arpeggiator.
+#define MAX_STREAMS      4   // Maximum concurrent background SD file streams.
+#define STREAM_BUF_SAMPLES 2048 // Streaming ring buffer length (must be a power of 2).
+```
+
+### Low RAM Target Profile
+For resource-constrained environments (e.g., when integrating heavy UI frameworks like LVGL alongside network tasks), reduce the synth limits to minimize memory allocation:
+```cpp
+#define MAX_VOICES         1
+#define MAX_WAVETABLES     1
+#define MAX_SAMPLES        1
+#define MAX_ARP_NOTES      7
+#define MAX_STREAMS        1
+#define STREAM_BUF_SAMPLES 2048
+```
+
+### Latency Optimization & DMA Tuning
+You can calculate the processing latency using this formula:
+$$\text{Latency (ms)} = \frac{\text{SYNTH\_DMA\_BUF\_LEN} \times \text{SYNTH\_DMA\_BUF\_COUNT}}{\text{Sample Rate}} \times 1000$$
+
+Configure these definitions directly in your build files or inside `ESP32Synth_Config.hpp` to achieve the required latency characteristics:
+
+* **High Polyphony / Robust Protection (Default):**
+  * `SYNTH_DMA_BUF_LEN 512` | `SYNTH_DMA_BUF_COUNT 6` (Approx. 64ms latency; provides a high safety margin against buffer underruns under heavy CPU loads).
+* **Balanced / Real-Time MIDI:**
+  * `SYNTH_DMA_BUF_LEN 256` | `SYNTH_DMA_BUF_COUNT 4` (Approx. 21ms latency; provides good responsiveness for physical keyboards).
+* **Live Action / Ultra-Low Latency:**
+  * `SYNTH_DMA_BUF_LEN 128` | `SYNTH_DMA_BUF_COUNT 2` (Approx. 5.3ms latency; highly immediate response but reduces voice headrooms).
+
+---
+
+## 5. Memory Footprint & Hardware Isolation
 
 ### Voice Structure Optimization
 To maximize RAM availability, ESP32Synth employs an extreme structure alignment strategy. Mutual exclusion is achieved via an explicit `union` block inside the `Voice` structure:
@@ -110,7 +172,7 @@ This union guarantees that regardless of your voice configuration, the core foot
 
 ---
 
-## 4. Unified API Reference
+## 6. Unified API Reference
 
 The engine dynamically switches compiler directives to accommodate Arduino or native C filesystems.
 
@@ -182,9 +244,9 @@ synth.setArpeggio(0, 120, c4, e4, g4, c5);
 
 ---
 
-## 5. The Power of `SMODE_PWM` (LEDC Bare-Metal Audio)
+## 7. The Power of `SMODE_PWM` (LEDC Bare-Metal Audio)
 
-No external DAC? No problem. In version 2.4.2, the PWM mode (`SMODE_PWM`) runs completely decoupled from traditional timers. We attach our interrupt handler (`ledc_ovf_isr`) directly to the LEDC timer's hardware overflow event:
+No external DAC? No problem. The PWM mode (`SMODE_PWM`) runs completely decoupled from traditional timers. We attach our interrupt handler (`ledc_ovf_isr`) directly to the LEDC timer's hardware overflow event:
 
 ```cpp
 // From ESP32Synth_Begins.hpp
@@ -192,7 +254,7 @@ esp_intr_alloc(ETS_LEDC_INTR_SOURCE, ESP_INTR_FLAG_IRAM, ledc_ovf_isr, this, (in
 ```
 
 ### Auto-Synchronized LEDC ISR
-The interrupt handler is written in high-priority Assembly-level IRAM, directly feeding duty-cycle updates to hardware registers. This bypasses FreeRTOS scheduling overhead completely:
+The interrupt handler is written in high-priority Assembly-level IRAM, directly feeding duty-cycle updates to hardware registers. This bypasses FreeRTOS scheduling overhead:
 
 ```cpp
 #if defined(CONFIG_IDF_TARGET_ESP32)
@@ -209,13 +271,13 @@ The interrupt handler is written in high-priority Assembly-level IRAM, directly 
     }
 #endif
 ```
-This is the closest you can get to dedicated hardware performance, producing a clean carrier frequency locked to **47,962 Hz** with 10-bit duty cycle resolution.
+This design minimizes scheduling jitter, producing a clean carrier frequency locked to **47,962 Hz** with 10-bit duty cycle resolution.
 
 ---
 
-## 6. Dual-Framework Filesystem Streaming (SD Card)
+## 8. Dual-Framework Filesystem Streaming (SD Card)
 
-ESP32Synth v2.4.2 natively translates filesystem calls based on the active compiler toolchain.
+ESP32Synth natively translates filesystem calls based on the active compiler toolchain.
 
 ### Arduino Framework Stream (Uses `fs::FS`)
 ```cpp
@@ -247,7 +309,7 @@ The underlying file IO decoder runs on Core 0 inside a lower-priority background
 
 ---
 
-## 7. External Protocol Pull Mode (A2DP Bluetooth & Wi-Fi)
+## 9. External Protocol Pull Mode (A2DP Bluetooth & Wi-Fi)
 
 To output audio over wireless connections (Bluetooth A2DP, ESP-NOW, or WebSockets), configure the engine in `SMODE_CUSTOM`. This turns off internal DMA timers and relies on a "Pull Mode" architecture.
 
@@ -271,7 +333,7 @@ void write_bluetooth_packet(uint8_t *stream_buffer, int buffer_length) {
 
 ---
 
-## 8. Fixed-Point Advanced DSP & Custom Synthesis Blocks
+## 10. Fixed-Point Advanced DSP & Custom Synthesis Blocks
 
 Inject complex physical effects and waveshapes into the engine using the global and local callback structures.
 
@@ -364,7 +426,7 @@ void setup() {
 
 ---
 
-## 9. Development Tools & Advanced Troubleshooting
+## 11. Development Tools & Advanced Troubleshooting
 
 ### Utility Scripts (`/tools`)
 The repository contains two high-speed python utilities:
@@ -380,4 +442,4 @@ The repository contains two high-speed python utilities:
 
 # Feel free to make and post videos, code, or suggestions; I'll be happy to see/read them!
 
-<p align="center"><i>Belive in Jesus Crist❤️</i></p>
+<p align="center"><i>Believe in Jesus Christ❤️</i></p>

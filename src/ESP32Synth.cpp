@@ -206,7 +206,7 @@ void ESP32Synth::renderLoop() {
         _dspLoad = ((float)used_cycles / (float)max_cycles_per_block) * 100.0f;
 
         if (currentMode == SMODE_DAC) {
-#if defined(CONFIG_IDF_TARGET_ESP32)
+#if defined(CONFIG_IDF_TARGET_ESP32) || defined(CONFIG_IDF_TARGET_ESP32S2)
             int16_t* buf16 = (int16_t*)buf;
             uint16_t* dacBuf = (uint16_t*)stereoBuf;
             for (int i = 0; i < blockSamples; i++) {

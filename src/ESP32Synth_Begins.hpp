@@ -14,7 +14,7 @@
 // Auto-Synchronized ISR: Triggered by the hardware PWM's own heartbeat pulse
 static IRAM_ATTR void ledc_ovf_isr(void *user_ctx) {
     ESP32Synth* synth = (ESP32Synth*)user_ctx;
-    uint32_t int_st = REG_READ(LEDC_INT_ST_REG);
+    uint32_t int_st = REG_READ(LEDC_INT_ST_REG); 
     bool handled = false;
 
     #if defined(CONFIG_IDF_TARGET_ESP32)
@@ -32,7 +32,7 @@ static IRAM_ATTR void ledc_ovf_isr(void *user_ctx) {
         }
     }
     #else
-    // ESP32-S3 - Low Speed Channel 0 Timer 0
+    // ESP32-S3 / ESP32-S2 - Low Speed Channel 0 Timer 0
     if (int_st & LEDC_LSTIMER0_OVF_INT_ST) {
         REG_WRITE(LEDC_INT_CLR_REG, LEDC_LSTIMER0_OVF_INT_CLR); // MUST clear the flag
         handled = true;
@@ -82,7 +82,8 @@ void ESP32Synth::end() {
         i2s_del_channel(tx_handle);
         tx_handle = NULL;
     }
-    #if defined(CONFIG_IDF_TARGET_ESP32)
+
+    #if defined(CONFIG_IDF_TARGET_ESP32) || defined(CONFIG_IDF_TARGET_ESP32S2)
     if (dac_handle != NULL) {
         dac_continuous_disable(dac_handle);
         dac_continuous_del_channels(dac_handle);
@@ -170,11 +171,18 @@ bool ESP32Synth::begin(int dataPin, SynthOutputMode mode, int clkPin, int wsPin,
     }
 
     if (mode == SMODE_DAC) {
-        #if !defined(CONFIG_IDF_TARGET_ESP32)
+        #if !defined(CONFIG_IDF_TARGET_ESP32) && !defined(CONFIG_IDF_TARGET_ESP32S2)
         return false;
         #else
+        // Dynamic mask detection based on target chip analog layout
+        #if defined(CONFIG_IDF_TARGET_ESP32)
+        dac_channel_mask_t mask = (dataPin == 26) ? DAC_CHANNEL_MASK_CH1 : DAC_CHANNEL_MASK_CH0;
+        #else // ESP32-S2
+        dac_channel_mask_t mask = (dataPin == 18) ? DAC_CHANNEL_MASK_CH1 : DAC_CHANNEL_MASK_CH0;
+        #endif
+
         dac_continuous_config_t cont_cfg = {
-            .chan_mask  = (dataPin == 26) ? DAC_CHANNEL_MASK_CH1 : DAC_CHANNEL_MASK_CH0,
+            .chan_mask  = mask,
             .desc_num   = SYNTH_DMA_BUF_COUNT,
             .buf_size   = SYNTH_DMA_BUF_LEN * 2,
             .freq_hz    = _sampleRate * 2,
