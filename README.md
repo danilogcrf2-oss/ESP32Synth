@@ -1,23 +1,25 @@
-# ESP32Synth v2.4.7 — Highly Optimized Bare-Metal Synth Engine for Embedded Polyphony
+# ESP32Synth v2.5.0 — Bare-Metal Polyphonic DSP Engine & Multi-Core Streaming for ESP32
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/danilogcrf2-oss/ESP32Synth/main/banner.jpg" alt="ESP32Synth banner" width="100%">
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.4.7-green.svg" alt="Version">
+  <img src="https://img.shields.io/badge/version-2.5.0-green.svg" alt="Version">
   <img src="https://img.shields.io/badge/platform-ESP32%20%7C%20ESP32--S3%20%7C%20ESP32--S2%20%7C%20ESP32--C3%20%7C%20ESP32--C6-orange.svg" alt="Platform">
   <img src="https://img.shields.io/badge/framework-Arduino%20%7C%20ESP--IDF-blue.svg" alt="Framework">
   <img src="https://img.shields.io/badge/license-MIT-yellow.svg" alt="License">
 </p>
 
-A high-performance, polyphonic audio synthesis library for the ESP32 series (including S3, S2, C3, C6, etc.). Engineered for extreme bare-metal optimization, low-latency rendering, massive voice density, custom DSP hooks, and direct filesystem/SD-card streaming. Dual-framework support ensures compilation in both Arduino IDE and VS Code (PlatformIO) under either Arduino or native ESP-IDF.
+A bare-metal, polyphonic synthesizer and audio streaming engine for the Espressif ESP32 family (ESP32, ESP32-S3, ESP32-S2, ESP32-C3, ESP32-C6). Built for raw integer execution, ultra-low latency, high voice density, modular bus DSP effects, and multi-core streaming. Supports both Arduino IDE and PlatformIO (Arduino and native ESP-IDF).
 
-### ✨ What's New in v2.4.7
-* **Studio-Grade TDF-II Q28 Biquad Engine**: Introduced Transposed Direct Form II biquad architecture with Q28 fixed-point coefficients and 64-bit internal accumulators (`DSP_BiquadOsc` / `DSP_BiquadOscHQ` and `FX_BiquadFilter`). Drastically minimizes quantization noise and prevents filter limit cycles.
-* **Low-Frequency Taylor Expansion (< 350 Hz)**: Fixed-point polynomial approximation for sub-bass cutoff frequencies, eliminating pole migration and coefficient drift down to 20 Hz without relying on floating-point trigonometry.
-* **Dual-Tier Filter Topologies**: Explicit architectural separation between `Fast` (Direct Form I, ~3.45% CPU per voice) for maximum voice density, and `HQ` (TDF-II Q28, ~4.35% CPU per voice) for reference-grade frequency response.
-* **Expanded Modular Bus Filters**: Pure in-place bus filter nodes (`FX_BiquadFilter` and `FX_BiquadFilterFast`) supporting both resonance ($Q$) and physical bandwidth (Hz) calibration modes, with integrated dry/wet crossfading.
+### ✨ What's New in v2.5.0
+* **Integrated Helix Fixed-Point MP3 Engine**: Zero-float MP3 decoding running asynchronously on Core 0. Highly optimized with Xtensa assembly (`mulsh`, `abs`, `CLAMPS`), RISC-V assembly (`mulh`), and 16-byte aligned internal SRAM allocation (`heap_caps_aligned_alloc`).
+* **Zero Polyphony Impact**: Audio synthesis on Core 1 runs at 100% capacity (300+ voices on classic ESP32, up to 500 on ESP32-S3) while Core 0 streams and decodes MP3 files in the background.
+* **PROGMEM / Flash MP3 Streaming**: Stream compressed MP3 audio directly from flash memory arrays (`playMP3StreamFromFlash`) without consuming dynamic RAM or requiring an SD card.
+* **Stream Metadata & VBR Parsing**: Automatic ID3v2 tag stripping, Xing/Info and VBRI header extraction, sample rate verification, duration calculation, and real-time bitrate detection (`getStreamBitrate`, `isStreamVBR`, `isStreamMP3`).
+* **Headless Rendering Mode (`SMODE_HEADLESS`)**: Generates audio blocks without initializing hardware audio peripherals, ideal for offline rendering, audio analysis, or direct-to-disk SD recording.
+* **Hardware Saturated Math**: Native Xtensa 1-cycle clamp instructions (`CLAMPS`) across all mixer buses, output stages, and filter taps.
 
 <p align="center">
   <a href="https://ko-fi.com/G3E323KDZC">
@@ -28,46 +30,44 @@ A high-performance, polyphonic audio synthesis library for the ESP32 series (inc
 </p>
 
 ---
+
 ## 📖 Table of Contents
 
-1. [Architectural Philosophy: Why 500 Voices?](#1-architectural-philosophy-why-500-voices)
-2. [PlatformIO (VS Code) & ESP-IDF Integration](#2-platformio-vs-code--esp-idf-integration)
-3. [Multi-Core & Extended Chip Family Support](#3-multi-core--extended-chip-family-support)
-4. [Core Configuration & Latency Tuning](#4-core-configuration--latency-tuning)
-5. [Memory Footprint & Hardware Isolation](#5-memory-footprint--hardware-isolation)
+1. [Architectural Highlights: Polyphony Without Compromise](#1-architectural-highlights-polyphony-without-compromise)
+2. [Dual-Framework Setup (Arduino IDE & PlatformIO / ESP-IDF)](#2-dual-framework-setup-arduino-ide--platformio--esp-idf)
+3. [Multi-Core Distribution: Core 0 vs Core 1](#3-multi-core-distribution-core-0-vs-core-1)
+4. [Engine Configuration & Latency Tuning](#4-engine-configuration--latency-tuning)
+5. [Memory Architecture & Hardware Alignment](#5-memory-architecture--hardware-alignment)
 6. [Unified API Reference](#6-unified-api-reference)
-7. [The Power of `SMODE_PWM` (LEDC Bare-Metal Audio)](#7-the-power-of-smode_pwm-ledc-bare-metal-audio)
-8. [Dual-Framework Filesystem Streaming (SD Card)](#8-dual-framework-filesystem-streaming-sd-card)
+7. [Hardware Output Modes (`SMODE`)](#7-hardware-output-modes-smode)
+8. [SD Card & Flash Audio Streaming (WAV & MP3)](#8-sd-card--flash-audio-streaming-wav--mp3)
 9. [External Protocol Pull Mode (A2DP Bluetooth & Wi-Fi)](#9-external-protocol-pull-mode-a2dp-bluetooth--wi-fi)
-10. [Fixed-Point Advanced DSP & Custom Synthesis Blocks](#10-fixed-point-advanced-dsp--custom-synthesis-blocks)
-11. [The FLT Engine: Write Floats, Run Integers](#11-the-flt-engine-write-floats-run-integers)
-12. [Development Tools & Advanced Troubleshooting](#12-development-tools--advanced-troubleshooting)
+10. [Fixed-Point Advanced DSP & Patches](#10-fixed-point-advanced-dsp--patches)
+11. [The FLT Engine (Float Translator & Fixed-Point Math)](#11-the-flt-engine-float-translator--fixed-point-math)
+12. [Troubleshooting & Best Practices](#12-troubleshooting--best-practices)
 
 ---
 
-## 1. Architectural Philosophy: Why 500 Voices?
+## 1. Architectural Highlights: Polyphony Without Compromise
 
-The polyphony figures achieved by ESP32Synth (300+ voices on classic ESP32, up to 500 on ESP32-S3) serve as a **benchmark of algorithmic efficiency**.
+ESP32Synth delivers high polyphonic voice counts (300+ voices on standard ESP32 at 240 MHz, up to 500 on ESP32-S3) while maintaining sample accuracy at 48,000 Hz.
 
-By removing all floating-point math, divisions, and branching from the audio rendering path, and leveraging architecture-specific instructions such as SIMD (`v4i32`) and hardware clamping (`CLAMPS`), the core synthesis overhead remains minimal. This headroom allows running complex synthesis architectures concurrently:
-* **6-Operator FM Synthesis**
-* **Acoustic Physical Modeling** (Karplus-Strong string synthesis, waveguide resonance)
-* **High-Precision Resonant Biquad Topologies** (TDF-II Q28 with 64-bit state registers)
-* **PolyBLEP Band-Limited Waveforms**
-
-To keep this performance profile, any additions to the rendering path should use strictly integer fixed-point math, look-up tables (LUTs), and bitwise operations.
+* **Zero Floats in Audio Path**: All oscillators, filters, envelope generators, modulators, and MP3 decoders use integer arithmetic, LUTs, and bitwise logic.
+* **SIMD Vectorization**: ESP32-S3 LX7 instructions process 4 voices simultaneously per clock cycle using 128-bit vector registers (`v4i32`).
+* **Zero-Branch PolyBLEP**: Band-limited step functions reduce aliasing on sawtooth and pulse waves with minimal branch overhead.
+* **Sub-Block Envelope Processing**: ADSR curves evaluate sample-accurately without per-sample division.
 
 ---
 
-## 2. PlatformIO (VS Code) & ESP-IDF Integration
+## 2. Dual-Framework Setup (Arduino IDE & PlatformIO / ESP-IDF)
 
-ESP32Synth natively abstracts file systems and platform calls across both Arduino and ESP-IDF frameworks.
+ESP32Synth automatically detects the target build system.
 
 ### PlatformIO Configuration (`platformio.ini`)
 
-For **Arduino Framework**:
+#### Arduino Framework
 ```ini
-[env:esp32s3]
+[env:esp32s3-arduino]
 platform = espressif32
 board = esp32-s3-devkitc-1
 framework = arduino
@@ -77,7 +77,7 @@ build_flags =
     -funroll-loops
 ```
 
-For **ESP-IDF Framework**:
+#### Native ESP-IDF Framework
 ```ini
 [env:esp32s3-idf]
 platform = espressif32
@@ -91,53 +91,58 @@ build_flags =
 
 ---
 
-## 3. Multi-Core & Extended Chip Family Support
+## 3. Multi-Core Distribution: Core 0 vs Core 1
 
-### Core Allocation Architectures
-* **Dual-Core SoC (Classic ESP32, ESP32-S3):** The real-time DSP loop is pinned to Core 1 (`SYNTH_AUDIO_TASK_CORE 1`). This isolates audio processing from protocol stacks (Wi-Fi, Bluetooth CDC) and UI tasks running on Core 0.
-* **Single-Core SoC (ESP32-S2, ESP32-C3, ESP32-C6):** Audio rendering shares execution time with application tasks. Lower `MAX_VOICES` and adjust DMA buffers to avoid buffer underruns.
+To keep audio synthesis glitch-free under heavy disk and network access, tasks are pinned to dedicated CPU cores:
 
-### Hardware Output Mode (`SMODE`) Support Matrix
+* **Core 1 (`SYNTH_AUDIO_TASK_CORE 1`)**: Pinned real-time DSP synthesis engine. Computes voice loops, custom waves, bus effects, master mix, and feeds I2S/PWM DMA buffers.
+* **Core 0 (`SYNTH_STREAM_TASK_CORE 0`)**: Background streaming and audio decoding. Reads files from SD cards (SPI/SDMMC), manages ring buffers, and decodes MP3 frames via the Helix fixed-point engine.
 
-| Chip Model | SMODE_DAC | SMODE_I2S | SMODE_PDM | SMODE_PWM |
-| :--- | :--- | :--- | :--- | :--- |
-| **Classic ESP32** | Supported (GPIO 25, 26) | Supported | Supported | Supported (High-Speed LEDC) |
-| **ESP32-S3** | Not Available | Supported | Supported (Recommended) | Supported (Low-Speed LEDC) |
-| **ESP32-S2** | Supported (GPIO 17, 18) | Supported | Supported | Supported (Low-Speed LEDC) |
-| **ESP32-C3 / C6** | Not Available | Supported | Supported | Supported (Low-Speed LEDC) |
-
----
-
-## 4. Core Configuration & Latency Tuning
-
-Static parameters can be configured directly in `ESP32Synth_Config.hpp`:
-
-```cpp
-#define MAX_VOICES         80   // Maximum active concurrent synthesis voices
-#define MAX_WAVETABLES     20   // Maximum user wavetable slots
-#define MAX_SAMPLES        20   // Maximum sample cache slots
-#define MAX_ARP_NOTES      16   // Maximum steps per voice arpeggiator
-#define MAX_STREAMS         4   // Maximum concurrent background SD streams
-#define STREAM_BUF_SAMPLES 2048 // Streaming ring buffer size (power of 2)
-#define MAX_BUSES           4   // Master Dry (0) + FX Auxiliary Buses (1-3)
-#define MAX_FX_PER_BUS      3   // Chained effect nodes per audio bus
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        ESP32 DUAL CORE                      │
+├──────────────────────────────┬──────────────────────────────┤
+│    CORE 0 (STREAM / DECODE)  │      CORE 1 (REAL-TIME DSP)  │
+├──────────────────────────────┼──────────────────────────────┤
+│  • SD Card File I/O          │  • Polyphonic Mix (80-500 v) │
+│  • Ring Buffer Refill        │  • PolyBLEP Oscillators      │
+│  • Helix Fixed-Point MP3     │  • Resonant Biquad Filters   │
+│  • Flash/PROGMEM Streaming   │  • Multi-Bus FX Chains       │
+│  • ID3v2 / Xing / VBR Parser │  • Direct DMA Output Push    │
+└──────────────────────────────┴──────────────────────────────┘
 ```
 
-### Latency Optimization & DMA Tuning
+---
+
+## 4. Engine Configuration & Latency Tuning
+
+Static parameters can be configured in `ESP32Synth_Config.hpp`:
+
+```cpp
+#define MAX_VOICES         80   // Max active voices (Set up to 140 on ESP32, 150+ on S3)
+#define MAX_WAVETABLES     20   // Custom wavetable cache slots
+#define MAX_SAMPLES        20   // PCM sample cache slots
+#define MAX_ARP_NOTES      16   // Arpeggio note sequence steps
+#define MAX_STREAMS         4   // Concurrent SD/Flash streams
+#define STREAM_BUF_SAMPLES 4096 // Ring buffer size per stream (Must be power of 2)
+#define MAX_BUSES           4   // Master Dry (0) + Auxiliary FX Buses (1-3)
+#define MAX_FX_PER_BUS      3   // Chained DSP effect nodes per bus
+#define ENABLE_MP3          1   // Enable Helix Fixed-Point MP3 Engine
+#define SYNTH_MP3_IN_BUF_SIZE 2048
+```
+
+### DMA Latency Calculations
 $$\text{Latency (ms)} = \frac{\text{Buffer Length} \times \text{Buffer Count}}{\text{Sample Rate}} \times 1000$$
 
-* **High Polyphony (Default):**
-  * `SYNTH_DMA_BUF_LEN 512` | `SYNTH_DMA_BUF_COUNT 6` (~64.0 ms latency).
-* **Balanced Performance (MIDI Input):**
-  * `SYNTH_DMA_BUF_LEN 256` | `SYNTH_DMA_BUF_COUNT 4` (~21.3 ms latency).
-* **Low Latency (Live Performance):**
-  * `SYNTH_DMA_BUF_LEN 128` | `SYNTH_DMA_BUF_COUNT 2` (~5.3 ms latency).
+* **High Polyphony (Default)**: `SYNTH_DMA_BUF_LEN 512` | `SYNTH_DMA_BUF_COUNT 6` (~64.0 ms latency).
+* **Balanced (MIDI Input)**: `SYNTH_DMA_BUF_LEN 256` | `SYNTH_DMA_BUF_COUNT 4` (~21.3 ms latency).
+* **Low Latency (Live)**: `SYNTH_DMA_BUF_LEN 128` | `SYNTH_DMA_BUF_COUNT 2` (~5.3 ms latency).
 
 ---
 
-## 5. Memory Footprint & Hardware Isolation
+## 5. Memory Architecture & Hardware Alignment
 
-Voice state structures utilize an explicit `union` to share memory between synthesis engines, keeping the struct aligned to 8-byte boundaries:
+Voice structures use unified memory unions aligned to 8-byte boundaries to reduce cache misses:
 
 ```cpp
 struct Voice {
@@ -153,227 +158,246 @@ struct Voice {
             uint32_t sampleLoopEnd;
             uint32_t streamFracAccum;
         };
-        // Mode: WAVE_CUSTOM (DSP filters, physical models)
+        // Mode: WAVE_CUSTOM (DSP filters, custom oscillators)
         uint32_t cw[SYNTH_CUSTOM_WAVE_STATES]; 
     };
     // ...
 };
 ```
 
+All audio buffers and Helix decoder contexts use 16-byte aligned allocations in internal SRAM (`MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT`) via `heap_caps_aligned_alloc`.
+
 ---
 
 ## 6. Unified API Reference
 
-### 1. Engine Initialization
+The library defaults to **8-bit parameters (0–255)** for master volume, voice volume, pulse width, and dry/wet controls. Frequencies use **CentiHz** ($1\text{ Hz} = 100\text{ cHz}$) using note definitions from `ESP32SynthNotes.h`.
+
+### 1. Initialization (I2S 32-Bit with PCM5102A)
 
 ```cpp
 #include "ESP32Synth.h"
 
 ESP32Synth synth;
 
-void setup_audio() {
-    // I2S Standard Output (PCM5102A on pins Data=2, BCK=4, WS=15 on ESP32)
-    // S3 suggested pins: Data=5, BCK=4, WS=6
-    synth.begin(2, SMODE_I2S, 4, 15, I2S_32BIT);
+void setup() {
+    // Classic ESP32: BCK = GPIO 4, WS = GPIO 15, DATA = GPIO 2
+    synth.begin(4, 15, 2, I2S_32BIT);
 
-    // Single-pin PWM Output (10-bit resolution on GPIO 25)
-    // synth.begin(25, SMODE_PWM, -1, -1, I2S_16BIT);
+    // ESP32-S3: BCK = GPIO 4, WS = GPIO 6, DATA = GPIO 5
+    // synth.begin(4, 6, 5, I2S_32BIT);
 
-    // Single-pin PDM Output (Oversampled 16-bit stream on GPIO 2)
-    // synth.begin(2, SMODE_PDM, 4, -1, I2S_16BIT);
-
-    // Headless Output (Offline rendering / SD file bounce)
-    // synth.beginHeadless(48000);
-
-    synth.setMasterVolume(255); // 0-255 scale
+    synth.setMasterVolume(255); // Full master volume without clipping
 }
 ```
 
-### 2. Basic Voice & Pitch Control
+### 2. Note and Voice Control
 
-Frequencies are defined in CentiHz ($1\text{ Hz} = 100\text{ cHz}$) to maintain integer precision. Note macros are provided via `ESP32SynthNotes.h`:
+Frequencies are defined as sharps (`s`) without flats (e.g., `ds2` instead of `eb2`, `as1` instead of `bb1`):
 
 ```cpp
-// Play C4 (Middle C) on Voice 0 at maximum volume
+// Trigger note: Voice 0, Middle C (c4), Volume 255
 synth.noteOn(0, c4, 255);
 
-// Set wave shape and pulse width
+// Configure waveform and pulse width
 synth.setWave(0, WAVE_PULSE);
-synth.setPulseWidth(0, 128); // 50% duty cycle (0-255 scale)
+synth.setPulseWidth(0, 128); // 50% duty cycle (0-255)
 
-// Master bitcrush reduction (0 = disabled, 1-32 = bit depth)
-synth.setMasterBitcrush(8);
+// ADSR Envelope: Attack=15ms, Decay=200ms, Sustain=180 (0-255), Release=800ms
+synth.setEnv(0, 15, 200, 180, 800);
 
-// Trigger release phase
+// Release note
 synth.noteOff(0);
 ```
 
-### 3. Modulations & Portamento
+### 3. Modulations and Slides
 
 ```cpp
-// ADSR Envelope: Attack=10ms, Decay=150ms, Sustain=120, Release=1200ms
-synth.setEnv(0, 10, 150, 120, 1200);
+// Vibrato: Voice 0, Rate 5.5 Hz (550 cHz), Depth 25 Hz (2500 cHz)
+synth.setVibrato(0, 550, 2500);
 
-// Vibrato: 6.5 Hz rate, 30 Hz peak-to-peak depth
-synth.setVibrato(0, 650, 3000);
+// Tremolo: Voice 0, Rate 4.0 Hz (400 cHz), Depth 60 (0-255)
+synth.setTremolo(0, 400, 60);
 
-// Tremolo: 4.0 Hz rate, depth scale 80 (0-255)
-synth.setTremolo(0, 400, 80);
+// Smooth frequency slide to G4 over 350 ms
+synth.slideFreqTo(0, g4, 350);
 
-// Linear frequency slide to C5 over 500ms
-synth.slideFreqTo(0, c5, 500);
-
-// Arpeggiator: Voice 0, 120ms per step, [C4 -> E4 -> G4 -> C5]
-synth.setArpeggio(0, 120, c4, e4, g4, c5);
+// Arpeggiator: Voice 0, 100 ms per step [C4 -> E4 -> G4 -> B4]
+synth.setArpeggio(0, 100, c4, e4, g4, b4);
 ```
 
 ---
 
-## 7. The Power of `SMODE_PWM` (LEDC Bare-Metal Audio)
+## 7. Hardware Output Modes (`SMODE`)
 
-`SMODE_PWM` drives a hardware LEDC timer directly at the carrier frequency of **47,962 Hz**. 
+| Output Mode | Hardware | Pins Needed | Target Architecture |
+| :--- | :--- | :--- | :--- |
+| **`SMODE_I2S`** | External I2S DAC (PCM5102A, MAX98357A) | 3 Pins (BCK, WS, DATA) | All ESP32 variants (16-bit & 32-bit) |
+| **`SMODE_PWM`** | Hardware LEDC Timer ISR (47,962 Hz Carrier) | 1 Pin | ESP32, ESP32-S3, S2, C3, C6 |
+| **`SMODE_PDM`** | Hardware PDM Sigma-Delta Modulator | 1 Pin / 2 Pins | ESP32-S3 (Recommended), ESP32 |
+| **`SMODE_DAC`** | Built-in 8-bit Analog DAC | 1 Pin (GPIO 25 or 26) | Classic ESP32, S2 only |
+| **`SMODE_HEADLESS`** | No hardware outputs (Offline rendering / SD recording) | None | All ESP32 variants |
+| **`SMODE_CUSTOM`** | Pull-mode callback for external protocol stacks | Software defined | All ESP32 variants |
 
-The hardware interrupt (`ledc_ovf_isr`) runs entirely in IRAM, writing samples directly to the timer duty registers. This bypasses FreeRTOS task context switching completely, producing clean 10-bit audio on a single GPIO pin without external DAC hardware.
+### Example: Single-Pin PWM Audio (`SMODE_PWM`)
+Runs an interrupt-driven 10-bit PWM output synchronized directly with LEDC hardware:
+```cpp
+synth.begin(25, SMODE_PWM, -1, -1, I2S_16BIT);
+```
+
+### Example: Headless Audio Bouncing (`SMODE_HEADLESS`)
+```cpp
+synth.beginHeadless(48000);
+synth.startRecording(SD, "/render.wav");
+synth.noteOn(0, c4, 255);
+// Engine renders internally to the SD card buffer without activating I2S/PWM
+```
 
 ---
 
-## 8. Dual-Framework Filesystem Streaming (SD Card)
+## 8. SD Card & Flash Audio Streaming (WAV & MP3)
 
-WAV streaming uses a background task pinned to Core 0 that pre-fills a ring buffer, decoupling file I/O latency from audio generation:
+ESP32Synth handles streaming tasks on Core 0 while keeping the Core 1 audio synthesizer responsive.
+
+### 1. MP3 Streaming from Flash / PROGMEM (Zero RAM / No SD Card)
+Compress sound effects, music, or speech into byte arrays and stream directly from flash memory:
+
+```cpp
+#include "ESP32Synth.h"
+#include "my_mp3_track.h" // const uint8_t my_mp3_data[] PROGMEM = { ... };
+
+ESP32Synth synth;
+
+void setup() {
+    synth.begin(4, 15, 2, I2S_32BIT);
+
+    // Voice 0, Data pointer, Size, Volume (255), Pitch (4800000 = Original), Loop (true)
+    synth.playMP3StreamFromFlash(0, my_mp3_data, sizeof(my_mp3_data), 255, 4800000, true);
+}
+```
+
+### 2. MP3 Streaming from SD Card
+Automatically skips ID3v2 tags, detects variable bitrates, and manages background decoding:
 
 ```cpp
 #ifdef ARDUINO
 #include <SD.h>
 
-void play_background_track() {
-    // Voice 1, SD filesystem, filepath, volume, root pitch, loop enable
-    synth.playStream(1, SD, "/ambient.wav", 255, c4, true);
+void play_sd_music() {
+    // Voice 1, SD Filesystem, Path, Volume, Pitch, Loop
+    synth.playMP3Stream(1, SD, "/music/track01.mp3", 255, 4800000, false);
 }
 #endif
 ```
 
-Master output can also be dumped to a file in real-time:
+### 3. Stream Metadata Inspection
 ```cpp
-synth.startRecording(SD, "/recording.wav");
-// ... audio processing ...
-synth.stopRecording(); // Finalizes WAV header
+uint32_t bitrate = synth.getStreamBitrate(1);      // Bitrate in bps (e.g., 128000, 320000)
+bool isVBR       = synth.isStreamVBR(1);          // True if Variable Bitrate detected
+uint32_t durMs   = synth.getStreamDurationMs(1);  // Duration in milliseconds
+uint32_t posMs   = synth.getStreamPositionMs(1);  // Current playback position
+```
+
+### 4. Background Master Audio Recording to SD
+```cpp
+synth.startRecording(SD, "/session_output.wav");
+// ... play synthesis notes or streams ...
+synth.stopRecording(); // Finalizes and writes valid WAV headers
 ```
 
 ---
 
 ## 9. External Protocol Pull Mode (A2DP Bluetooth & Wi-Fi)
 
-For wireless audio streaming (such as Bluetooth A2DP, ESP-NOW, or WebSockets), initialize the engine in pull mode using `SMODE_CUSTOM`:
+For wireless audio transmission, initialize the engine in pull mode via `SMODE_CUSTOM`:
 
 ```cpp
 ESP32Synth synth;
 
 void setup() {
-    synth.beginCustom(44100, nullptr); // Engine will not spawn an internal hardware task
+    // Pass nullptr as callback to run in Pull Mode without spawning internal audio tasks
+    synth.beginCustom(44100, nullptr);
     synth.noteOn(0, c4, 255);
 }
 
-// Callback invoked by your network or Bluetooth transmission stack
-void write_bluetooth_packet(uint8_t *stream_buffer, int buffer_length) {
-    int samplePairs = buffer_length / 4; // 16-bit interleaved stereo = 4 bytes per frame
-    synth.generateSamplesStereo((int16_t*)stream_buffer, samplePairs);
+// Callback invoked by Bluetooth A2DP or network audio transmission tasks
+void a2dp_audio_data_callback(uint8_t *data_buffer, size_t length_in_bytes) {
+    int samplePairs = length_in_bytes / 4; // 16-bit interleaved stereo = 4 bytes per frame
+    synth.generateSamplesStereo((int16_t*)data_buffer, samplePairs);
 }
 ```
 
 ---
 
-## 10. Fixed-Point Advanced DSP & Custom Synthesis Blocks
+## 10. Fixed-Point Advanced DSP & Patches
 
-ESP32Synth provides built-in algorithms in `ESP32Synth_Patches.hpp` covering anti-aliased oscillators, filters, instruments, and bus effects.
+Pre-configured DSP algorithms are available in `ESP32Synth_Patches.hpp`.
 
-### Resonant Biquad Oscillators (PolyBLEP Filtered)
+### High-Precision Resonant Biquad Oscillators
 
-Version 2.4.7 provides two distinct biquad oscillator topologies:
-
-#### 1. `DSP_BiquadOsc` / `DSP_BiquadOscHQ` (High-Precision TDF-II Q28)
-Implements Transposed Direct Form II with 28-bit fixed-point coefficients and 64-bit internal accumulation. Includes sub-350 Hz polynomial approximation to prevent filter instability in lower frequency ranges.
+#### 1. `DSP_BiquadOsc` / `DSP_BiquadOscHQ` (TDF-II Q28)
+Transposed Direct Form II with 28-bit fixed-point coefficients and 64-bit internal registers. Includes polynomial approximations for stable response down to 20 Hz:
 * **CPU Load**: ~4.35% per voice.
-* **Application**: Basslines, resonant sweeps, studio-quality leads.
+* **Usage**: Resonant bass, filter sweeps, expressive leads.
 
 ```cpp
 #include "ESP32Synth_Patches.hpp"
 
-void play_hq_filtered_saw() {
+void trigger_filtered_synth() {
     synth.setCustomWave(0, ESP32Patches::DSP_BiquadOsc);
-    synth.setCustomParam(0, 0, 0);    // Wave Type: 0 = Saw, 1 = Pulse, 2 = Triangle
-    synth.setCustomParam(0, 1, 440);  // Cutoff Frequency: 440 Hz (Range: 20 - 20000)
-    synth.setCustomParam(0, 2, 150);  // Resonance Q: 1.50 (Q * 100)
-    synth.setCustomParam(0, 3, 0);    // Mode: 0 = LPF, 1 = HPF, 2 = BPF, 3 = Notch
-    
-    synth.noteOn(0, c3, 255);
+    synth.setCustomParam(0, 0, 0);    // Waveform: 0 = Saw, 1 = Pulse, 2 = Triangle
+    synth.setCustomParam(0, 1, 650);  // Cutoff Frequency: 650 Hz (20 to 20000)
+    synth.setCustomParam(0, 2, 200);  // Resonance Q: 2.00 (Q * 100)
+    synth.setCustomParam(0, 3, 0);    // Filter Type: 0 = LPF, 1 = HPF, 2 = BPF, 3 = Notch
+
+    synth.noteOn(0, c2, 255);
 }
 ```
 
 #### 2. `DSP_BiquadOscFast` (Direct Form I)
-Calculated with 24-bit fixed-point math and 32-bit state registers.
+Fixed-point Direct Form I for high-polyphony setups:
 * **CPU Load**: ~3.45% per voice.
-* **Application**: High-polyphony accompaniment, chord stacks, resource-constrained setups.
 
 ---
 
-### Modular Bus Filters & FX Chains
+### Modular Bus FX Chains
 
-Auxiliary buses (1 to 3) support multi-slot effect processing before mixing down to the master output.
-
-#### Bus Filter: `FX_BiquadFilter` (HQ) & `FX_BiquadFilterFast`
-Process audio directly on an audio bus with selectable $Q$ or physical bandwidth modes:
+Route voices to auxiliary buses (1 to 3), run chained DSP effects, and sum down to master:
 
 | Parameter | Function | Description / Range |
 | :--- | :--- | :--- |
 | `ep[0]` | Cutoff / Center Freq | $20\text{ Hz}$ to $20000\text{ Hz}$ |
 | `ep[1]` | Filter Mode | `0`: LPF, `1`: HPF, `2`: BPF, `3`: Notch |
-| `ep[2]` | Resonance / Bandwidth | If `ep[3] == 0`: $Q \times 100$ (e.g., $70 = 0.707$). If `ep[3] == 1`: Bandwidth in Hz. |
+| `ep[2]` | Resonance / Bandwidth | If `ep[3] == 0`: $Q \times 100$. If `ep[3] == 1`: Bandwidth in Hz. |
 | `ep[3]` | Calibration Unit Mode | `0`: Standard Q mode, `1`: Physical Bandwidth mode |
 | `ep[4]` | Dry / Wet Mix | `0` or `255`: 100% Wet. `1` to `254`: Linear dry/wet blend |
 
 ```cpp
-// Route Voice 0 to Bus 1
+// Assign Voice 0 to Bus 1
 synth.setVoiceBus(0, 1);
 
-// Add a 120Hz Bandwidth Notch Filter on Bus 1, Slot 0
+// Add Biquad Filter to Bus 1, Slot 0
 synth.setBusFX(1, 0, FX_CUSTOM, ESP32Patches::FX_BiquadFilter);
-synth.setBusFXParam(1, 0, 0, 1000); // Notch Center Frequency: 1000 Hz
-synth.setBusFXParam(1, 0, 1, 3);    // Mode: Notch
-synth.setBusFXParam(1, 0, 2, 120);  // Bandwidth: 120 Hz
-synth.setBusFXParam(1, 0, 3, 1);    // Unit Mode: 1 (Bandwidth in Hz)
+synth.setBusFXParam(1, 0, 0, 1200); // 1200 Hz
+synth.setBusFXParam(1, 0, 1, 0);    // Low-Pass Filter
+synth.setBusFXParam(1, 0, 2, 180);  // Q = 1.80
+synth.setBusFXParam(1, 0, 3, 0);    // Q Mode
 synth.setBusFXParam(1, 0, 4, 255);  // 100% Wet
 
-// Mix Bus 1 to Master (Bus 0) at full volume
+// Mix Bus 1 to Master at full level
 synth.setBusMix(1, 255);
-```
-
-#### Guitar and Organ Emulations
-```cpp
-// Karplus-Strong physical modeling guitar
-synth.setCustomWave(1, ESP32Patches::EKS_Guitar);
-synth.noteOn(1, e2, 255);
-
-// Add Leslie Rotary Speaker effect to Master Bus
-synth.setCustomDSP(ESP32Patches::DSP_HammondLeslie);
-synth.setDSPParam(0, 2);   // Speed: 0 = Stop, 1 = Slow (Chorale), 2 = Fast (Tremolo)
-synth.setDSPParam(1, 140); // Internal Spring Reverb Wet Mix (0 - 255)
 ```
 
 ---
 
-## 11. The FLT Engine: Write Floats, Run Integers
+## 11. The FLT Engine (Float Translator & Fixed-Point Math)
 
-The `fip` fixed-point class compiles floating-point DSP syntax into signed **Q8.24 32-bit hardware integer operations**.
-
-### The 3 Rules of FLT:
-1. **Range Bounds (-128.0 to 127.999)**: Never assign raw frequencies directly to `fip`. Work with normalized frequency ratios ($\frac{f}{\text{SampleRate}}$) fitting within $0.0$ to $0.5$.
-2. **Literal Wrapping**: Always wrap constant floats: `fip(0.5f)`. The compiler evaluates these as integer literals at compile time with zero runtime cycles.
-3. **Engine Boundaries**: Use `fip::fromPhase()`, `fip::fromParam()`, and `fip::fromEnv()` on entry. Call `.toAudio16()` when writing samples to the mix buffer.
+The `fip` engine in `ESP32Synth_FLT.hpp` allows writing floating-point style DSP code that compiles into signed **Q8.24 32-bit hardware integer arithmetic**:
 
 ```cpp
 #include "ESP32Synth_FLT.hpp"
 
-void myCustomOsc(Voice* vo, int32_t* mixBuffer, int samples, int32_t startEnv, int32_t envStep) {
+void customWavetableOsc(Voice* vo, int32_t* mixBuffer, int samples, int32_t startEnv, int32_t envStep) {
     fip phase = fip::fromPhase(vo->phase);
     fip inc   = fip::fromPhase(vo->phaseInc);
     
@@ -381,13 +405,13 @@ void myCustomOsc(Voice* vo, int32_t* mixBuffer, int samples, int32_t startEnv, i
     int32_t volBase = ((uint32_t)vo->vol * vo->trmModGain) >> 8;
 
     for (int i = 0; i < samples; i++) {
-        fip sample = fip::sin(phase * fip::two_pi());
+        fip wave = fip::sin(phase * fip::two_pi());
 
         int32_t envSafe = currentEnv >> 14;
         envSafe &= ~(envSafe >> 31);
         int32_t finalVol = (envSafe * volBase) >> 14;
 
-        mixBuffer[i] += (sample.toAudio16() * finalVol) >> 16;
+        mixBuffer[i] += (wave.toAudio16() * finalVol) >> 16;
 
         phase += inc;
         currentEnv += envStep;
@@ -397,38 +421,33 @@ void myCustomOsc(Voice* vo, int32_t* mixBuffer, int samples, int32_t startEnv, i
 ```
 
 ### Pre-Rendering Wavetables (`FLT_Baker`)
-Bake mathematical formulas into RAM tables during `setup()` to save runtime CPU cycles:
+Compute complex mathematical waves at startup and store them in internal RAM tables:
 
 ```cpp
 #include "ESP32Synth_FLT.hpp"
 
-const void* tableData;
-
 void setup() {
-    // Generate 4096-point 16-bit wavetable in slot 0
-    tableData = FLT_Baker::bakeWavetable(&synth, 0, [](fip phase) {
-        fip fundamental = fip::sin(phase * fip::two_pi());
-        fip overtone    = fip::sin(phase * fip::two_pi() * fip(3.0f)) * fip(0.3f);
-        return fip::fast_tanh(fundamental + overtone);
+    FLT_Baker::bakeWavetable(&synth, 0, [](fip phase) {
+        fip osc1 = fip::sin(phase * fip::two_pi());
+        fip osc2 = fip::sin(phase * fip::two_pi() * fip(2.0f)) * fip(0.5f);
+        return fip::fast_tanh(osc1 + osc2);
     }, 4096, BITS_16);
 }
 ```
 
 ---
 
-## 12. Development Tools & Advanced Troubleshooting
+## 12. Troubleshooting & Best Practices
 
-### Python Conversion Tools (`/tools`)
-* `WavetableMaker.py`: Converts mathematical equations or single-cycle audio files into aligned C header tables (`WAVE_WAVETABLE`).
-* `WavToEsp32SynthConverter.py`: Converts transient audio files into 4-bit, 8-bit, or 16-bit aligned C arrays for sample playback.
-
-### Hardware Troubleshooting
-* **WDT Watchdog Triggers:** Ensure the ESP32 CPU frequency is explicitly set to **240 MHz** in your board configuration.
-* **Filter Instability on Custom DSP:** If implementing custom feedback loops, clamp intermediate accumulators to $[-262143, 262143]$ to prevent 32-bit integer overflows during saturation.
-* **LEDC Register Collision:** When running `SMODE_PWM`, ensure no peripheral libraries (such as servo or motor drivers) reconfigure LEDC Channel 0 or Timer 0 registers.
+1. **CPU Frequency Configuration**: Ensure the CPU frequency is configured to **240 MHz** in your board options to maintain timing margins at high voice counts.
+2. **I2S Pin Assignments**:
+   * **Classic ESP32**: `synth.begin(4, 15, 2, I2S_32BIT);` (BCK = 4, WS = 15, DATA = 2)
+   * **ESP32-S3**: `synth.begin(4, 6, 5, I2S_32BIT);` (BCK = 4, WS = 6, DATA = 5)
+3. **Internal RAM Headroom**: When running high voice counts (`MAX_VOICES > 100`) alongside MP3 decoders, keep `STREAM_BUF_SAMPLES` around `2048` or `4096` to avoid heap exhaustion on chips without PSRAM.
+4. **Volume Scaling**: Use `setMasterVolume(255)` and balance individual voice volumes to prevent digital clipping when summing high polyphonic voice counts.
 
 ---
 
-# Feel free to make and post videos, code, or suggestions; I'll be happy to see/read them!
+# Feel free to share your creations, open issues, or submit PRs!
 
 <p align="center"><i>Believe in Jesus Christ❤️</i></p>

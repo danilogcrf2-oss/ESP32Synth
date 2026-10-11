@@ -5,163 +5,148 @@
 #######################################
 # Datatypes and Classes (KEYWORD1)
 #######################################
-
-ESP32Synth	KEYWORD1
-ESP32Patches	KEYWORD1
-fip	KEYWORD1
-FLT_Baker	KEYWORD1
-Voice	KEYWORD1
 AudioBus	KEYWORD1
+BitDepth	KEYWORD1
+ESP32Patches	KEYWORD1
+ESP32Synth	KEYWORD1
+EnvState	KEYWORD1
+FLT_Baker	KEYWORD1
 FXNode	KEYWORD1
+FXType	KEYWORD1
+I2S_Depth	KEYWORD1
 Instrument	KEYWORD1
 Instrument_Sample	KEYWORD1
+LoopMode	KEYWORD1
 SampleData	KEYWORD1
 SampleZone	KEYWORD1
 StreamTrack	KEYWORD1
 SynthOutputMode	KEYWORD1
+Voice	KEYWORD1
 WaveType	KEYWORD1
-FXType	KEYWORD1
-BitDepth	KEYWORD1
-EnvState	KEYWORD1
-I2S_Depth	KEYWORD1
-LoopMode	KEYWORD1
+fip	KEYWORD1
 
 #######################################
 # Methods and Functions (KEYWORD2)
 #######################################
-
-# Engine Lifecycle & System
+AA_Pulse	KEYWORD2
+AA_Saw	KEYWORD2
+DSP_BiquadOsc	KEYWORD2
+DSP_BiquadOscFast	KEYWORD2
+DSP_BiquadOscHQ	KEYWORD2
+DSP_HammondLeslie	KEYWORD2
+DSP_Pedalboard	KEYWORD2
+EKS_Guitar	KEYWORD2
+FM_Custom	KEYWORD2
+FX_BiquadFilter	KEYWORD2
+FX_BiquadFilterFast	KEYWORD2
+HammondB3	KEYWORD2
+bakeWavetable	KEYWORD2
 begin	KEYWORD2
 beginCustom	KEYWORD2
 beginHeadless	KEYWORD2
+detachArpeggio	KEYWORD2
+detachInstrument	KEYWORD2
 end	KEYWORD2
-setSampleRate	KEYWORD2
-setControlRateHz	KEYWORD2
-setMasterVolume	KEYWORD2
-setVolDepthBase	KEYWORD2
-setMasterBitcrush	KEYWORD2
-getMasterVolume	KEYWORD2
-getChipModel	KEYWORD2
-getSampleRate	KEYWORD2
-getCPULoad	KEYWORD2
-
-# Custom Hooks & Pull Output
-setCustomDSP	KEYWORD2
-setCustomControl	KEYWORD2
-setCustomOutput	KEYWORD2
+fast_tanh	KEYWORD2
+fromEnv	KEYWORD2
+fromParam	KEYWORD2
+fromPhase	KEYWORD2
 generateSamples	KEYWORD2
 generateSamplesStereo	KEYWORD2
-
-# Voice Control & Pitch
-noteOn	KEYWORD2
+getCPULoad	KEYWORD2
+getChipModel	KEYWORD2
+getEnv8Bit	KEYWORD2
+getEnvRaw	KEYWORD2
+getEnvState	KEYWORD2
+getFrequencyCentiHz	KEYWORD2
+getMasterVolume	KEYWORD2
+getOutput8Bit	KEYWORD2
+getOutputRaw	KEYWORD2
+getPhase	KEYWORD2
+getPulseWidth	KEYWORD2
+getSampleRate	KEYWORD2
+getStreamBitsPerSample	KEYWORD2
+getStreamBitrate	KEYWORD2
+getStreamChannels	KEYWORD2
+getStreamDurationMs	KEYWORD2
+getStreamLoad	KEYWORD2
+getStreamPositionMs	KEYWORD2
+getStreamSampleRate	KEYWORD2
+getVolume	KEYWORD2
+getVolume8Bit	KEYWORD2
+getVolumeRaw	KEYWORD2
+getWaveType	KEYWORD2
+isRecordingActive	KEYWORD2
+isStreamMP3	KEYWORD2
+isStreamPlaying	KEYWORD2
+isStreamVBR	KEYWORD2
+isVoiceActive	KEYWORD2
 noteOff	KEYWORD2
-setFrequency	KEYWORD2
-setVolume	KEYWORD2
-setWave	KEYWORD2
-setPulseWidthBitDepth	KEYWORD2
-setPulseWidth	KEYWORD2
-setCustomWave	KEYWORD2
-setCustomParam	KEYWORD2
-setDSPParam	KEYWORD2
-setVoiceBus	KEYWORD2
+noteOn	KEYWORD2
+pauseStream	KEYWORD2
+playMP3Stream	KEYWORD2
+playMP3StreamFromFlash	KEYWORD2
+playStream	KEYWORD2
+poly_blep	KEYWORD2
+registerSample	KEYWORD2
+registerWavetable	KEYWORD2
+resumeStream	KEYWORD2
+seekStreamMs	KEYWORD2
+setArpeggio	KEYWORD2
 setBusFX	KEYWORD2
 setBusFXParam	KEYWORD2
 setBusMix	KEYWORD2
-
-# Envelope & Phase
+setControlRateHz	KEYWORD2
+setCustomControl	KEYWORD2
+setCustomDSP	KEYWORD2
+setCustomOutput	KEYWORD2
+setCustomParam	KEYWORD2
+setCustomWave	KEYWORD2
+setCurrentPhase	KEYWORD2
+setDSPParam	KEYWORD2
 setEnv	KEYWORD2
+setFrequency	KEYWORD2
+setInstrument	KEYWORD2
+setMasterBitcrush	KEYWORD2
+setMasterVolume	KEYWORD2
+setPulseWidth	KEYWORD2
+setPulseWidthBitDepth	KEYWORD2
+setSample	KEYWORD2
+setSampleLoop	KEYWORD2
+setSampleRate	KEYWORD2
 setSmoothEnv	KEYWORD2
 setStartPhase	KEYWORD2
-setCurrentPhase	KEYWORD2
-
-# Modulation & Slides
-setVibrato	KEYWORD2
-setVibratoPhase	KEYWORD2
+setStreamLoopPointsMs	KEYWORD2
 setTremolo	KEYWORD2
 setTremoloPhase	KEYWORD2
+setVibrato	KEYWORD2
+setVibratoPhase	KEYWORD2
+setVoiceBus	KEYWORD2
+setVolDepthBase	KEYWORD2
+setVolume	KEYWORD2
+setWave	KEYWORD2
+setWavetable	KEYWORD2
+setupMP3Stream	KEYWORD2
+setupStream	KEYWORD2
 slideFreq	KEYWORD2
 slideFreqTo	KEYWORD2
 slideVol	KEYWORD2
 slideVolTo	KEYWORD2
-
-# Wavetables, Samples & Instruments
-setWavetable	KEYWORD2
-registerWavetable	KEYWORD2
-setInstrument	KEYWORD2
-detachInstrument	KEYWORD2
-registerSample	KEYWORD2
-setSample	KEYWORD2
-setSampleLoop	KEYWORD2
-
-# Arpeggiator
-setArpeggio	KEYWORD2
-detachArpeggio	KEYWORD2
-
-# SD Streaming
-setupStream	KEYWORD2
-playStream	KEYWORD2
-pauseStream	KEYWORD2
-resumeStream	KEYWORD2
-stopStream	KEYWORD2
-seekStreamMs	KEYWORD2
-setStreamLoopPointsMs	KEYWORD2
-getStreamPositionMs	KEYWORD2
-getStreamDurationMs	KEYWORD2
-isStreamPlaying	KEYWORD2
-
-# SD Recording
 startRecording	KEYWORD2
 stopRecording	KEYWORD2
-isRecordingActive	KEYWORD2
-
-# Voice Getters & Inspection
-getFrequencyCentiHz	KEYWORD2
-getVolume	KEYWORD2
-getVolume8Bit	KEYWORD2
-getEnv8Bit	KEYWORD2
-getOutput8Bit	KEYWORD2
-getVolumeRaw	KEYWORD2
-getEnvRaw	KEYWORD2
-getOutputRaw	KEYWORD2
-isVoiceActive	KEYWORD2
-getEnvState	KEYWORD2
-getWaveType	KEYWORD2
-getPhase	KEYWORD2
-getPulseWidth	KEYWORD2
-
-# Built-in DSP Patches (ESP32Patches)
-poly_blep	KEYWORD2
-AA_Saw	KEYWORD2
-AA_Pulse	KEYWORD2
-DSP_BiquadOsc	KEYWORD2
-FM_Custom	KEYWORD2
-HammondB3	KEYWORD2
-EKS_Guitar	KEYWORD2
-DSP_HammondLeslie	KEYWORD2
-DSP_Pedalboard	KEYWORD2
-
-# FLT & Baker Methods
-bakeWavetable	KEYWORD2
-toFloat	KEYWORD2
+stopStream	KEYWORD2
 toAudio16	KEYWORD2
-fromPhase	KEYWORD2
-fromParam	KEYWORD2
-fromEnv	KEYWORD2
-fast_tanh	KEYWORD2
+toFloat	KEYWORD2
 
 #######################################
-# Constants and Enums (LITERAL1)
+# Constants, Enums and Macros (LITERAL1)
 #######################################
-
-# Output Modes
 SMODE_PDM	LITERAL1
 SMODE_I2S	LITERAL1
 SMODE_DAC	LITERAL1
 SMODE_PWM	LITERAL1
 SMODE_CUSTOM	LITERAL1
 SMODE_HEADLESS	LITERAL1
-
-# Wave Types
 WAVE_SINE	LITERAL1
 WAVE_TRIANGLE	LITERAL1
 WAVE_SAW	LITERAL1
@@ -171,34 +156,22 @@ WAVE_WAVETABLE	LITERAL1
 WAVE_SAMPLE	LITERAL1
 WAVE_STREAM	LITERAL1
 WAVE_CUSTOM	LITERAL1
-
-# FX Types
 FX_NONE	LITERAL1
 FX_CUSTOM	LITERAL1
-
-# Bit Depths
 BITS_4	LITERAL1
 BITS_8	LITERAL1
 BITS_16	LITERAL1
-
-# Envelope States
 ENV_IDLE	LITERAL1
 ENV_ATTACK	LITERAL1
 ENV_DECAY	LITERAL1
 ENV_SUSTAIN	LITERAL1
 ENV_RELEASE	LITERAL1
-
-# I2S Depth
 I2S_16BIT	LITERAL1
 I2S_32BIT	LITERAL1
-
-# Loop Modes
 LOOP_OFF	LITERAL1
 LOOP_FORWARD	LITERAL1
 LOOP_PINGPONG	LITERAL1
 LOOP_REVERSE	LITERAL1
-
-# Core Engine Limits & Defines
 MAX_VOICES	LITERAL1
 MAX_WAVETABLES	LITERAL1
 MAX_SAMPLES	LITERAL1
@@ -207,15 +180,121 @@ MAX_STREAMS	LITERAL1
 STREAM_BUF_SAMPLES	LITERAL1
 MAX_BUSES	LITERAL1
 MAX_FX_PER_BUS	LITERAL1
-SYNTH_FX_PARAMS	LITERAL1
-SYNTH_FX_STATES	LITERAL1
-SYNTH_CUSTOM_WAVE_STATES	LITERAL1
-SYNTH_CUSTOM_PARAMS_PER_VOICE	LITERAL1
-SYNTH_CUSTOM_PARAMS_GLOBAL	LITERAL1
-RECORD_BUF_SAMPLES	LITERAL1
+ENABLE_MP3	LITERAL1
 SYNTH_DMA_BUF_LEN	LITERAL1
 SYNTH_DMA_BUF_COUNT	LITERAL1
-SYNTH_SD_TASK_CORE	LITERAL1
+SYNTH_STREAM_TASK_CORE	LITERAL1
 SYNTH_AUDIO_TASK_CORE	LITERAL1
-SINE_LUT_SIZE	LITERAL1
-ENV_MAX	LITERAL1
+
+#######################################
+# Musical Notes CentiHz (LITERAL1)
+#######################################
+c0	LITERAL1
+cs0	LITERAL1
+d0	LITERAL1
+ds0	LITERAL1
+e0	LITERAL1
+f0	LITERAL1
+fs0	LITERAL1
+g0	LITERAL1
+gs0	LITERAL1
+a0	LITERAL1
+as0	LITERAL1
+b0	LITERAL1
+c1	LITERAL1
+cs1	LITERAL1
+d1	LITERAL1
+ds1	LITERAL1
+e1	LITERAL1
+f1	LITERAL1
+fs1	LITERAL1
+g1	LITERAL1
+gs1	LITERAL1
+a1	LITERAL1
+as1	LITERAL1
+b1	LITERAL1
+c2	LITERAL1
+cs2	LITERAL1
+d2	LITERAL1
+ds2	LITERAL1
+e2	LITERAL1
+f2	LITERAL1
+fs2	LITERAL1
+g2	LITERAL1
+gs2	LITERAL1
+a2	LITERAL1
+as2	LITERAL1
+b2	LITERAL1
+c3	LITERAL1
+cs3	LITERAL1
+d3	LITERAL1
+ds3	LITERAL1
+e3	LITERAL1
+f3	LITERAL1
+fs3	LITERAL1
+g3	LITERAL1
+gs3	LITERAL1
+a3	LITERAL1
+as3	LITERAL1
+b3	LITERAL1
+c4	LITERAL1
+cs4	LITERAL1
+d4	LITERAL1
+ds4	LITERAL1
+e4	LITERAL1
+f4	LITERAL1
+fs4	LITERAL1
+g4	LITERAL1
+gs4	LITERAL1
+a4	LITERAL1
+as4	LITERAL1
+b4	LITERAL1
+c5	LITERAL1
+cs5	LITERAL1
+d5	LITERAL1
+ds5	LITERAL1
+e5	LITERAL1
+f5	LITERAL1
+fs5	LITERAL1
+g5	LITERAL1
+gs5	LITERAL1
+a5	LITERAL1
+as5	LITERAL1
+b5	LITERAL1
+c6	LITERAL1
+cs6	LITERAL1
+d6	LITERAL1
+ds6	LITERAL1
+e6	LITERAL1
+f6	LITERAL1
+fs6	LITERAL1
+g6	LITERAL1
+gs6	LITERAL1
+a6	LITERAL1
+as6	LITERAL1
+b6	LITERAL1
+c7	LITERAL1
+cs7	LITERAL1
+d7	LITERAL1
+ds7	LITERAL1
+e7	LITERAL1
+f7	LITERAL1
+fs7	LITERAL1
+g7	LITERAL1
+gs7	LITERAL1
+a7	LITERAL1
+as7	LITERAL1
+b7	LITERAL1
+c8	LITERAL1
+cs8	LITERAL1
+d8	LITERAL1
+ds8	LITERAL1
+e8	LITERAL1
+f8	LITERAL1
+fs8	LITERAL1
+g8	LITERAL1
+gs8	LITERAL1
+a8	LITERAL1
+as8	LITERAL1
+b8	LITERAL1
+c9	LITERAL1
