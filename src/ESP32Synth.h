@@ -80,7 +80,9 @@
 #include "driver/dac_continuous.h"
 #endif
 
-#if defined(CONFIG_IDF_TARGET_ESP32S3)
+#if defined(CONFIG_IDF_TARGET_ESP32P4)
+    #define SYNTH_CHIP "ESP32-P4"
+#elif defined(CONFIG_IDF_TARGET_ESP32S3)
     #define SYNTH_CHIP "ESP32-S3"
 #elif defined(CONFIG_IDF_TARGET_ESP32)
     #define SYNTH_CHIP "ESP32-Standard"

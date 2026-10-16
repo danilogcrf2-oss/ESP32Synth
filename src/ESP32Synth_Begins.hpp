@@ -4,11 +4,28 @@
 #include "soc/interrupts.h" // Fixes the ETS_LEDC_INTR_SOURCE error
 #include "esp_intr_alloc.h"
 
-// Fixes the SYNTH_PWM_MODE error
+// Hardware Register Mapping for Classic ESP32, S-Series, and P4/C-Series
 #if defined(CONFIG_IDF_TARGET_ESP32)
-    #define SYNTH_PWM_MODE LEDC_HIGH_SPEED_MODE
-#else
-    #define SYNTH_PWM_MODE LEDC_LOW_SPEED_MODE
+    #define SYNTH_PWM_MODE               LEDC_HIGH_SPEED_MODE
+    #define SYNTH_LEDC_TIMER_OVF_INT_ST  LEDC_HSTIMER0_OVF_INT_ST
+    #define SYNTH_LEDC_TIMER_OVF_INT_CLR LEDC_HSTIMER0_OVF_INT_CLR
+    #define SYNTH_LEDC_TIMER_OVF_INT_ENA LEDC_HSTIMER0_OVF_INT_ENA
+    #define SYNTH_LEDC_CH_DUTY_REG       LEDC_HSCH0_DUTY_REG
+    #define SYNTH_LEDC_CH_LATCH()        REG_WRITE(LEDC_HSCH0_CONF1_REG, REG_READ(LEDC_HSCH0_CONF1_REG) | (1U << 31))
+#elif defined(CONFIG_IDF_TARGET_ESP32S3) || defined(CONFIG_IDF_TARGET_ESP32S2)
+    #define SYNTH_PWM_MODE               LEDC_LOW_SPEED_MODE
+    #define SYNTH_LEDC_TIMER_OVF_INT_ST  LEDC_LSTIMER0_OVF_INT_ST
+    #define SYNTH_LEDC_TIMER_OVF_INT_CLR LEDC_LSTIMER0_OVF_INT_CLR
+    #define SYNTH_LEDC_TIMER_OVF_INT_ENA LEDC_LSTIMER0_OVF_INT_ENA
+    #define SYNTH_LEDC_CH_DUTY_REG       LEDC_LSCH0_DUTY_REG
+    #define SYNTH_LEDC_CH_LATCH()        REG_WRITE(LEDC_LSCH0_CONF0_REG, REG_READ(LEDC_LSCH0_CONF0_REG) | 0x10)
+#else // ESP32-P4 and unified architectures
+    #define SYNTH_PWM_MODE               LEDC_LOW_SPEED_MODE
+    #define SYNTH_LEDC_TIMER_OVF_INT_ST  LEDC_TIMER0_OVF_INT_ST
+    #define SYNTH_LEDC_TIMER_OVF_INT_CLR LEDC_TIMER0_OVF_INT_CLR
+    #define SYNTH_LEDC_TIMER_OVF_INT_ENA LEDC_TIMER0_OVF_INT_ENA
+    #define SYNTH_LEDC_CH_DUTY_REG       LEDC_CH0_DUTY_REG
+    #define SYNTH_LEDC_CH_LATCH()        REG_WRITE(LEDC_CH0_CONF0_REG, REG_READ(LEDC_CH0_CONF0_REG) | 0x10)
 #endif
 
 // Auto-Synchronized ISR: Triggered by the hardware PWM's own heartbeat pulse
@@ -17,35 +34,18 @@ static IRAM_ATTR void ledc_ovf_isr(void *user_ctx) {
     uint32_t int_st = REG_READ(LEDC_INT_ST_REG); 
     bool handled = false;
 
-    #if defined(CONFIG_IDF_TARGET_ESP32)
-    // Classic ESP32 - High Speed Channel 0 Timer 0
-    if (int_st & LEDC_HSTIMER0_OVF_INT_ST) {
-        REG_WRITE(LEDC_INT_CLR_REG, LEDC_HSTIMER0_OVF_INT_CLR); // MUST clear the flag
+    if (int_st & SYNTH_LEDC_TIMER_OVF_INT_ST) {
+        REG_WRITE(LEDC_INT_CLR_REG, SYNTH_LEDC_TIMER_OVF_INT_CLR);
         handled = true;
 
         if (synth->_running && synth->pwm_ping_pong_buf[synth->pwm_active_buf]) {
             int16_t sample = synth->pwm_ping_pong_buf[synth->pwm_active_buf][synth->pwm_read_idx];
-            synth->pwm_read_idx = synth->pwm_read_idx + 1; // Avoids 'volatile ++' compiler warning
-            uint32_t duty_val = ((uint32_t)(sample + 32768) >> 6) << 4; // Exact 10-bit duty
-            REG_WRITE(LEDC_HSCH0_DUTY_REG, duty_val);
-            REG_WRITE(LEDC_HSCH0_CONF1_REG, REG_READ(LEDC_HSCH0_CONF1_REG) | (1U << 31)); // Immediate latch
+            synth->pwm_read_idx = synth->pwm_read_idx + 1;
+            uint32_t duty_val = ((uint32_t)(sample + 32768) >> 6) << 4;
+            REG_WRITE(SYNTH_LEDC_CH_DUTY_REG, duty_val);
+            SYNTH_LEDC_CH_LATCH();
         }
     }
-    #else
-    // ESP32-S3 / ESP32-S2 - Low Speed Channel 0 Timer 0
-    if (int_st & LEDC_LSTIMER0_OVF_INT_ST) {
-        REG_WRITE(LEDC_INT_CLR_REG, LEDC_LSTIMER0_OVF_INT_CLR); // MUST clear the flag
-        handled = true;
-
-        if (synth->_running && synth->pwm_ping_pong_buf[synth->pwm_active_buf]) {
-            int16_t sample = synth->pwm_ping_pong_buf[synth->pwm_active_buf][synth->pwm_read_idx];
-            synth->pwm_read_idx = synth->pwm_read_idx + 1; // Avoids 'volatile ++' compiler warning
-            uint32_t duty_val = ((uint32_t)(sample + 32768) >> 6) << 4; // Exact 10-bit duty
-            REG_WRITE(LEDC_LSCH0_DUTY_REG, duty_val);
-            REG_WRITE(LEDC_LSCH0_CONF0_REG, REG_READ(LEDC_LSCH0_CONF0_REG) | 0x10); // Immediate latch via BIT 4
-        }
-    }
-    #endif
 
     // If the buffer is exhausted, request more from the Render Task!
     if (handled && synth->_running && synth->pwm_block_samples > 0 && synth->pwm_read_idx >= synth->pwm_block_samples) {
@@ -53,7 +53,7 @@ static IRAM_ATTR void ledc_ovf_isr(void *user_ctx) {
         synth->pwm_active_buf = 1 - synth->pwm_active_buf;
         BaseType_t awoken = pdFALSE;
         xSemaphoreGiveFromISR(synth->pwm_sema, &awoken);
-        if (awoken == pdTRUE) portYIELD_FROM_ISR(); // Wake the processor immediately
+        if (awoken == pdTRUE) portYIELD_FROM_ISR();
     }
 }
 
@@ -112,11 +112,7 @@ void ESP32Synth::end() {
     if (pwm_sema != NULL) {
         if (pwm_timer) {
             // Disable the interrupt directly in hardware before freeing memory
-            #if defined(CONFIG_IDF_TARGET_ESP32)
-                REG_WRITE(LEDC_INT_ENA_REG, REG_READ(LEDC_INT_ENA_REG) & ~LEDC_HSTIMER0_OVF_INT_ENA);
-            #else
-                REG_WRITE(LEDC_INT_ENA_REG, REG_READ(LEDC_INT_ENA_REG) & ~LEDC_LSTIMER0_OVF_INT_ENA);
-            #endif
+            REG_WRITE(LEDC_INT_ENA_REG, REG_READ(LEDC_INT_ENA_REG) & ~SYNTH_LEDC_TIMER_OVF_INT_ENA);
             esp_intr_free((intr_handle_t)pwm_timer);
             pwm_timer = NULL;
         }
@@ -218,9 +214,12 @@ bool ESP32Synth::begin(int dataPin, SynthOutputMode mode, int clkPin, int wsPin,
         ledc_timer.duty_resolution       = LEDC_TIMER_10_BIT;
         ledc_timer.timer_num             = LEDC_TIMER_0;
         ledc_timer.freq_hz               = _sampleRate;
+        #if defined(LEDC_USE_APB_CLK)
         ledc_timer.clk_cfg               = LEDC_USE_APB_CLK;
+        #else
+        ledc_timer.clk_cfg               = LEDC_AUTO_CLK;
+        #endif
         if (ledc_timer_config(&ledc_timer) != ESP_OK) return false;
-
         ledc_channel_config_t ledc_channel = {};
         ledc_channel.gpio_num              = dataPin;
         ledc_channel.speed_mode            = SYNTH_PWM_MODE;
@@ -236,11 +235,7 @@ bool ESP32Synth::begin(int dataPin, SynthOutputMode mode, int clkPin, int wsPin,
         // THE DEFINITIVE SECRET: Goodbye GPTimer! We hook our ISR directly to the LEDC pin.
         esp_intr_alloc(ETS_LEDC_INTR_SOURCE, ESP_INTR_FLAG_IRAM, ledc_ovf_isr, this, (intr_handle_t*)&pwm_timer);
 
-        #if defined(CONFIG_IDF_TARGET_ESP32)
-            REG_WRITE(LEDC_INT_ENA_REG, REG_READ(LEDC_INT_ENA_REG) | LEDC_HSTIMER0_OVF_INT_ENA);
-        #else
-            REG_WRITE(LEDC_INT_ENA_REG, REG_READ(LEDC_INT_ENA_REG) | LEDC_LSTIMER0_OVF_INT_ENA);
-        #endif
+        REG_WRITE(LEDC_INT_ENA_REG, REG_READ(LEDC_INT_ENA_REG) | SYNTH_LEDC_TIMER_OVF_INT_ENA);
 
     } else {
         i2s_port_t requested_port = (mode == SMODE_PDM) ? I2S_NUM_0 : I2S_NUM_AUTO;

@@ -1,25 +1,25 @@
-# ESP32Synth v2.5.0 — Bare-Metal Polyphonic DSP Engine & Multi-Core Streaming for ESP32
+# ESP32Synth v2.5.1 — Bare-Metal Polyphonic DSP Engine & Multi-Core Streaming for ESP32
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/danilogcrf2-oss/ESP32Synth/main/banner.jpg" alt="ESP32Synth banner" width="100%">
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.5.0-green.svg" alt="Version">
-  <img src="https://img.shields.io/badge/platform-ESP32%20%7C%20ESP32--S3%20%7C%20ESP32--S2%20%7C%20ESP32--C3%20%7C%20ESP32--C6-orange.svg" alt="Platform">
+  <img src="https://img.shields.io/badge/version-2.5.1-green.svg" alt="Version">
+  <img src="https://img.shields.io/badge/platform-ESP32%20%7C%20ESP32--S3%20%7C%20ESP32--P4%20%7C%20ESP32--S2%20%7C%20ESP32--C3%20%7C%20ESP32--C6-orange.svg" alt="Platform">
   <img src="https://img.shields.io/badge/framework-Arduino%20%7C%20ESP--IDF-blue.svg" alt="Framework">
   <img src="https://img.shields.io/badge/license-MIT-yellow.svg" alt="License">
 </p>
 
 A bare-metal, polyphonic synthesizer and audio streaming engine for the Espressif ESP32 family (ESP32, ESP32-S3, ESP32-S2, ESP32-C3, ESP32-C6). Built for raw integer execution, ultra-low latency, high voice density, modular bus DSP effects, and multi-core streaming. Supports both Arduino IDE and PlatformIO (Arduino and native ESP-IDF).
 
-### ✨ What's New in v2.5.0
+### ✨ What's New in v2.5.1
 * **Integrated Helix Fixed-Point MP3 Engine**: Zero-float MP3 decoding running asynchronously on Core 0. Highly optimized with Xtensa assembly (`mulsh`, `abs`, `CLAMPS`), RISC-V assembly (`mulh`), and 16-byte aligned internal SRAM allocation (`heap_caps_aligned_alloc`).
 * **Zero Polyphony Impact**: Audio synthesis on Core 1 runs at 100% capacity (300+ voices on classic ESP32, up to 500 on ESP32-S3) while Core 0 streams and decodes MP3 files in the background.
 * **PROGMEM / Flash MP3 Streaming**: Stream compressed MP3 audio directly from flash memory arrays (`playMP3StreamFromFlash`) without consuming dynamic RAM or requiring an SD card.
 * **Stream Metadata & VBR Parsing**: Automatic ID3v2 tag stripping, Xing/Info and VBRI header extraction, sample rate verification, duration calculation, and real-time bitrate detection (`getStreamBitrate`, `isStreamVBR`, `isStreamMP3`).
 * **Headless Rendering Mode (`SMODE_HEADLESS`)**: Generates audio blocks without initializing hardware audio peripherals, ideal for offline rendering, audio analysis, or direct-to-disk SD recording.
-* **Hardware Saturated Math**: Native Xtensa 1-cycle clamp instructions (`CLAMPS`) across all mixer buses, output stages, and filter taps.
+* **ESP32-P4 Support!**: yippeeeeee! 
 
 <p align="center">
   <a href="https://ko-fi.com/G3E323KDZC">
