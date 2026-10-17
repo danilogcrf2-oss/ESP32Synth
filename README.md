@@ -493,4 +493,3 @@ void setup() {
 # Feel free to share your creations, open issues, or submit PRs!
 
 <p align="center"><i>Believe in Jesus Christ❤️</i></p>
-```
