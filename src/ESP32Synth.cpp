@@ -71,8 +71,15 @@ ESP32Synth::ESP32Synth() {
     }
 
     for (int i = 0; i < MAX_STREAMS; i++) {
-        streams[i] = {};
+        streams[i].active = false;
+        streams[i].playing = false;
         streams[i].seekTarget = -1;
+        streams[i].head = 0;
+        streams[i].tail = 0;
+        streams[i].sampleRate = 0;
+        #if ENABLE_MP3
+        streams[i].isMP3 = false;
+        #endif
     }
 
     for (uint16_t i = 0; i < MAX_WAVETABLES; i++) {

@@ -1,25 +1,24 @@
-# ESP32Synth v2.5.1 — Bare-Metal Polyphonic DSP Engine & Multi-Core Streaming for ESP32
+# ESP32Synth v2.5.2 — Bare-Metal Polyphonic DSP Engine & Multi-Core Streaming for ESP32
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/danilogcrf2-oss/ESP32Synth/main/banner.jpg" alt="ESP32Synth banner" width="100%">
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.5.1-green.svg" alt="Version">
+  <img src="https://img.shields.io/badge/version-2.5.2-green.svg" alt="Version">
   <img src="https://img.shields.io/badge/platform-ESP32%20%7C%20ESP32--S3%20%7C%20ESP32--P4%20%7C%20ESP32--S2%20%7C%20ESP32--C3%20%7C%20ESP32--C6-orange.svg" alt="Platform">
   <img src="https://img.shields.io/badge/framework-Arduino%20%7C%20ESP--IDF-blue.svg" alt="Framework">
   <img src="https://img.shields.io/badge/license-MIT-yellow.svg" alt="License">
 </p>
 
-A bare-metal, polyphonic synthesizer and audio streaming engine for the Espressif ESP32 family (ESP32, ESP32-S3, ESP32-S2, ESP32-C3, ESP32-C6). Built for raw integer execution, ultra-low latency, high voice density, modular bus DSP effects, and multi-core streaming. Supports both Arduino IDE and PlatformIO (Arduino and native ESP-IDF).
+A bare-metal, polyphonic synthesizer and audio streaming engine for the Espressif ESP32 family (ESP32, ESP32-S3, ESP32-P4, ESP32-S2, ESP32-C3, ESP32-C6). Built for raw integer execution, ultra-low latency, high voice density, modular bus DSP effects, and multi-core streaming. Supports both Arduino IDE and PlatformIO (Arduino and native ESP-IDF).
 
-### ✨ What's New in v2.5.1
-* **Integrated Helix Fixed-Point MP3 Engine**: Zero-float MP3 decoding running asynchronously on Core 0. Highly optimized with Xtensa assembly (`mulsh`, `abs`, `CLAMPS`), RISC-V assembly (`mulh`), and 16-byte aligned internal SRAM allocation (`heap_caps_aligned_alloc`).
-* **Zero Polyphony Impact**: Audio synthesis on Core 1 runs at 100% capacity (300+ voices on classic ESP32, up to 500 on ESP32-S3) while Core 0 streams and decodes MP3 files in the background.
-* **PROGMEM / Flash MP3 Streaming**: Stream compressed MP3 audio directly from flash memory arrays (`playMP3StreamFromFlash`) without consuming dynamic RAM or requiring an SD card.
-* **Stream Metadata & VBR Parsing**: Automatic ID3v2 tag stripping, Xing/Info and VBRI header extraction, sample rate verification, duration calculation, and real-time bitrate detection (`getStreamBitrate`, `isStreamVBR`, `isStreamMP3`).
-* **Headless Rendering Mode (`SMODE_HEADLESS`)**: Generates audio blocks without initializing hardware audio peripherals, ideal for offline rendering, audio analysis, or direct-to-disk SD recording.
-* **ESP32-P4 Support!**: yippeeeeee! 
+### ✨ What's New in v2.5.2
+* **PWM Thermal & Pop Protection Engine (`armPWM` / `unArmPWM`)**: Zero-float, half-cosine S-curve ramping using `sineLUT` to transition duty cycle smoothly between 0% (0V / coil rest) and 50% (1.65V / audio baseline). Prevents coil overheating, thermal runaway, and mechanical cone pops on filterless hardware such as the Cheap Yellow Display (CYD / ESP32-2432S028R) and direct SC8002B/PAM8302 amplifiers.
+* **Unified LEDC Hardware Layer (ESP32-P4 & C-Series Support)**: Universal register mapping dynamically adapts across Classic ESP32, S-Series, and unified peripheral architectures without HS/LS distinctions (`LEDC_TIMER0_*`, `LEDC_CH0_*`, and `LEDC_AUTO_CLK`).
+* **Official ESP32-P4 Target Identification**: `getChipModel()` now natively identifies and returns `"ESP32-P4"`.
+* **Helix MP3 Toolchain & C99 Standard Fixes**: Fixed `ALWAYS_INLINE` macro resolution in `buffers.c` and missing `<stdint.h>` integer definitions in `polyphase.c` for clean builds across all Xtensa and RISC-V toolchains.
+* **Zero-Warning Stream Pipeline**: Replaced aggregate assignment in `ESP32Synth.cpp` with explicit member initialization, eliminating Arduino Core 3.x `StreamTrack` / `fs::File` uninitialized warnings.
 
 <p align="center">
   <a href="https://ko-fi.com/G3E323KDZC">
@@ -40,11 +39,12 @@ A bare-metal, polyphonic synthesizer and audio streaming engine for the Espressi
 5. [Memory Architecture & Hardware Alignment](#5-memory-architecture--hardware-alignment)
 6. [Unified API Reference](#6-unified-api-reference)
 7. [Hardware Output Modes (`SMODE`)](#7-hardware-output-modes-smode)
-8. [SD Card & Flash Audio Streaming (WAV & MP3)](#8-sd-card--flash-audio-streaming-wav--mp3)
-9. [External Protocol Pull Mode (A2DP Bluetooth & Wi-Fi)](#9-external-protocol-pull-mode-a2dp-bluetooth--wi-fi)
-10. [Fixed-Point Advanced DSP & Patches](#10-fixed-point-advanced-dsp--patches)
-11. [The FLT Engine (Float Translator & Fixed-Point Math)](#11-the-flt-engine-float-translator--fixed-point-math)
-12. [Troubleshooting & Best Practices](#12-troubleshooting--best-practices)
+8. [PWM Thermal & Click Protection (CYD & Direct Speakers)](#8-pwm-thermal--click-protection-cyd--direct-speakers)
+9. [SD Card & Flash Audio Streaming (WAV & MP3)](#9-sd-card--flash-audio-streaming-wav--mp3)
+10. [External Protocol Pull Mode (A2DP Bluetooth & Wi-Fi)](#10-external-protocol-pull-mode-a2dp-bluetooth--wi-fi)
+11. [Fixed-Point Advanced DSP & Patches](#11-fixed-point-advanced-dsp--patches)
+12. [The FLT Engine (Float Translator & Fixed-Point Math)](#12-the-flt-engine-float-translator--fixed-point-math)
+13. [Troubleshooting & Best Practices](#13-troubleshooting--best-practices)
 
 ---
 
@@ -233,7 +233,7 @@ synth.setArpeggio(0, 100, c4, e4, g4, b4);
 | Output Mode | Hardware | Pins Needed | Target Architecture |
 | :--- | :--- | :--- | :--- |
 | **`SMODE_I2S`** | External I2S DAC (PCM5102A, MAX98357A) | 3 Pins (BCK, WS, DATA) | All ESP32 variants (16-bit & 32-bit) |
-| **`SMODE_PWM`** | Hardware LEDC Timer ISR (47,962 Hz Carrier) | 1 Pin | ESP32, ESP32-S3, S2, C3, C6 |
+| **`SMODE_PWM`** | Hardware LEDC Timer ISR (47,962 Hz Carrier) | 1 Pin | ESP32, ESP32-S3, P4, S2, C3, C6 |
 | **`SMODE_PDM`** | Hardware PDM Sigma-Delta Modulator | 1 Pin / 2 Pins | ESP32-S3 (Recommended), ESP32 |
 | **`SMODE_DAC`** | Built-in 8-bit Analog DAC | 1 Pin (GPIO 25 or 26) | Classic ESP32, S2 only |
 | **`SMODE_HEADLESS`** | No hardware outputs (Offline rendering / SD recording) | None | All ESP32 variants |
@@ -242,7 +242,7 @@ synth.setArpeggio(0, 100, c4, e4, g4, b4);
 ### Example: Single-Pin PWM Audio (`SMODE_PWM`)
 Runs an interrupt-driven 10-bit PWM output synchronized directly with LEDC hardware:
 ```cpp
-synth.begin(25, SMODE_PWM, -1, -1, I2S_16BIT);
+synth.begin(26, SMODE_PWM, -1, -1, I2S_16BIT);
 ```
 
 ### Example: Headless Audio Bouncing (`SMODE_HEADLESS`)
@@ -255,7 +255,47 @@ synth.noteOn(0, c4, 255);
 
 ---
 
-## 8. SD Card & Flash Audio Streaming (WAV & MP3)
+## 8. PWM Thermal & Click Protection (CYD & Direct Speakers)
+
+Devices like the **CYD (ESP32-2432S028R / Cheap Yellow Display)** connect the speaker amplifier (SC8002B) directly to an output pin (GPIO 26) without AC-coupling capacitors or reconstruction filters. 
+
+When PWM is idle at 50% duty (audio silence), continuous DC current ($\sim 1.65\text{ V}$) is dumped into the speaker coil, causing significant thermal buildup. Abruptly switching between 0% and 50% duty causes an audible mechanical speaker "POP".
+
+ESP32Synth v2.5.2 solves this using **`armPWM()`** and **`unArmPWM()`**, applying an S-curve ramp via `sineLUT` in single-cycle fixed-point math:
+
+```cpp
+#include "ESP32Synth.h"
+#include "ESP32SynthNotes.h"
+
+ESP32Synth synth;
+
+void setup() {
+    // Initialize PWM mode on GPIO 26 (CYD onboard amplifier pin)
+    synth.begin(26, SMODE_PWM);
+
+    // Immediately disarm to 0% duty (0V GND): coil stays completely cold during idle
+    synth.unArmPWM(0);
+}
+
+void playBeep() {
+    // 1. Arm with a 15 ms smooth S-curve (brings coil from 0V to 1.65V silently)
+    synth.armPWM(15);
+
+    // 2. Play UI sound
+    synth.setWave(0, WAVE_SINE);
+    synth.setEnv(0, 5, 20, 0, 50);
+    synth.noteOn(0, c5, 120);
+
+    delay(80); // Sound duration
+
+    // 3. Disarm with a 15 ms smooth S-curve (returns coil to 0V without pop or DC dissipation)
+    synth.unArmPWM(15);
+}
+```
+
+---
+
+## 9. SD Card & Flash Audio Streaming (WAV & MP3)
 
 ESP32Synth handles streaming tasks on Core 0 while keeping the Core 1 audio synthesizer responsive.
 
@@ -307,7 +347,7 @@ synth.stopRecording(); // Finalizes and writes valid WAV headers
 
 ---
 
-## 9. External Protocol Pull Mode (A2DP Bluetooth & Wi-Fi)
+## 10. External Protocol Pull Mode (A2DP Bluetooth & Wi-Fi)
 
 For wireless audio transmission, initialize the engine in pull mode via `SMODE_CUSTOM`:
 
@@ -329,7 +369,7 @@ void a2dp_audio_data_callback(uint8_t *data_buffer, size_t length_in_bytes) {
 
 ---
 
-## 10. Fixed-Point Advanced DSP & Patches
+## 11. Fixed-Point Advanced DSP & Patches
 
 Pre-configured DSP algorithms are available in `ESP32Synth_Patches.hpp`.
 
@@ -390,7 +430,7 @@ synth.setBusMix(1, 255);
 
 ---
 
-## 11. The FLT Engine (Float Translator & Fixed-Point Math)
+## 12. The FLT Engine (Float Translator & Fixed-Point Math)
 
 The `fip` engine in `ESP32Synth_FLT.hpp` allows writing floating-point style DSP code that compiles into signed **Q8.24 32-bit hardware integer arithmetic**:
 
@@ -437,17 +477,20 @@ void setup() {
 
 ---
 
-## 12. Troubleshooting & Best Practices
+## 13. Troubleshooting & Best Practices
 
-1. **CPU Frequency Configuration**: Ensure the CPU frequency is configured to **240 MHz** in your board options to maintain timing margins at high voice counts.
+1. **CPU Frequency Configuration**: Ensure the CPU frequency is configured to **240 MHz** (or **360/400 MHz** on ESP32-P4) in your board options to maintain timing margins at high voice counts.
 2. **I2S Pin Assignments**:
    * **Classic ESP32**: `synth.begin(4, 15, 2, I2S_32BIT);` (BCK = 4, WS = 15, DATA = 2)
    * **ESP32-S3**: `synth.begin(4, 6, 5, I2S_32BIT);` (BCK = 4, WS = 6, DATA = 5)
-3. **Internal RAM Headroom**: When running high voice counts (`MAX_VOICES > 100`) alongside MP3 decoders, keep `STREAM_BUF_SAMPLES` around `2048` or `4096` to avoid heap exhaustion on chips without PSRAM.
-4. **Volume Scaling**: Use `setMasterVolume(255)` and balance individual voice volumes to prevent digital clipping when summing high polyphonic voice counts.
+   * **ESP32-P4**: Configure GPIOs to available digital pins (e.g., `synth.begin(12, 13, 14, I2S_32BIT);`).
+3. **CYD / Filterless PWM Audio**: Always call `synth.unArmPWM(0)` at boot. Only call `synth.armPWM(15)` when triggering audio, and `synth.unArmPWM(15)` when audio stops. This protects both the amplifier and the speaker coil.
+4. **Internal RAM Headroom**: When running high voice counts (`MAX_VOICES > 100`) alongside MP3 decoders, keep `STREAM_BUF_SAMPLES` around `2048` or `4096` to avoid heap exhaustion on chips without PSRAM.
+5. **Volume Scaling**: Use `setMasterVolume(255)` and balance individual voice volumes to prevent digital clipping when summing high polyphonic voice counts.
 
 ---
 
 # Feel free to share your creations, open issues, or submit PRs!
 
 <p align="center"><i>Believe in Jesus Christ❤️</i></p>
+```

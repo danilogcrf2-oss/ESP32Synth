@@ -28,6 +28,10 @@
     #define SYNTH_LEDC_CH_LATCH()        REG_WRITE(LEDC_CH0_CONF0_REG, REG_READ(LEDC_CH0_CONF0_REG) | 0x10)
 #endif
 
+#ifndef LIKELY
+#define LIKELY(x) __builtin_expect(!!(x), 1)
+#endif
+
 // Auto-Synchronized ISR: Triggered by the hardware PWM's own heartbeat pulse
 static IRAM_ATTR void ledc_ovf_isr(void *user_ctx) {
     ESP32Synth* synth = (ESP32Synth*)user_ctx;
@@ -35,15 +39,46 @@ static IRAM_ATTR void ledc_ovf_isr(void *user_ctx) {
     bool handled = false;
 
     if (int_st & SYNTH_LEDC_TIMER_OVF_INT_ST) {
-        REG_WRITE(LEDC_INT_CLR_REG, SYNTH_LEDC_TIMER_OVF_INT_CLR);
+        REG_WRITE(LEDC_INT_CLR_REG, SYNTH_LEDC_TIMER_OVF_INT_CLR); // MUST clear the flag
         handled = true;
 
         if (synth->_running && synth->pwm_ping_pong_buf[synth->pwm_active_buf]) {
-            int16_t sample = synth->pwm_ping_pong_buf[synth->pwm_active_buf][synth->pwm_read_idx];
-            synth->pwm_read_idx = synth->pwm_read_idx + 1;
-            uint32_t duty_val = ((uint32_t)(sample + 32768) >> 6) << 4;
-            REG_WRITE(SYNTH_LEDC_CH_DUTY_REG, duty_val);
-            SYNTH_LEDC_CH_LATCH();
+            int idx = synth->pwm_read_idx;
+            synth->pwm_read_idx = idx + 1; // Avoids 'volatile ++' compiler warning
+
+            if (LIKELY(synth->pwm_state == PWM_STATE_ACTIVE)) {
+                int16_t sample = synth->pwm_ping_pong_buf[synth->pwm_active_buf][idx];
+                uint32_t duty_val = ((uint32_t)(sample + 32768) >> 6) << 4; // Exact 10-bit duty
+                REG_WRITE(SYNTH_LEDC_CH_DUTY_REG, duty_val);
+                SYNTH_LEDC_CH_LATCH();
+            } else if (synth->pwm_state == PWM_STATE_MUTED) {
+                REG_WRITE(SYNTH_LEDC_CH_DUTY_REG, 0);
+                SYNTH_LEDC_CH_LATCH();
+            } else if (synth->pwm_state == PWM_STATE_RAMP_UP) {
+                synth->pwm_ramp_phase += synth->pwm_ramp_inc;
+                if (synth->pwm_ramp_phase >= 0x80000000UL) {
+                    synth->pwm_ramp_phase = 0x80000000UL;
+                    synth->pwm_state = PWM_STATE_ACTIVE;
+                }
+                // S-curve interpolation via sineLUT: maps 3072 (-32767) to 5120 (+32767)
+                uint32_t lut_idx = (3072 + (synth->pwm_ramp_phase >> 20)) & SINE_LUT_MASK;
+                uint32_t duty_10bit = (uint32_t)(sineLUT[lut_idx] + 32768) >> 7;
+                if (duty_10bit > 512) duty_10bit = 512;
+                REG_WRITE(SYNTH_LEDC_CH_DUTY_REG, duty_10bit << 4);
+                SYNTH_LEDC_CH_LATCH();
+            } else if (synth->pwm_state == PWM_STATE_RAMP_DOWN) {
+                if (synth->pwm_ramp_phase <= synth->pwm_ramp_inc) {
+                    synth->pwm_ramp_phase = 0;
+                    synth->pwm_state = PWM_STATE_MUTED;
+                } else {
+                    synth->pwm_ramp_phase -= synth->pwm_ramp_inc;
+                }
+                uint32_t lut_idx = (3072 + (synth->pwm_ramp_phase >> 20)) & SINE_LUT_MASK;
+                uint32_t duty_10bit = (uint32_t)(sineLUT[lut_idx] + 32768) >> 7;
+                if (duty_10bit > 512) duty_10bit = 512;
+                REG_WRITE(SYNTH_LEDC_CH_DUTY_REG, duty_10bit << 4);
+                SYNTH_LEDC_CH_LATCH();
+            }
         }
     }
 
@@ -53,7 +88,7 @@ static IRAM_ATTR void ledc_ovf_isr(void *user_ctx) {
         synth->pwm_active_buf = 1 - synth->pwm_active_buf;
         BaseType_t awoken = pdFALSE;
         xSemaphoreGiveFromISR(synth->pwm_sema, &awoken);
-        if (awoken == pdTRUE) portYIELD_FROM_ISR();
+        if (awoken == pdTRUE) portYIELD_FROM_ISR(); // Wake the processor immediately
     }
 }
 

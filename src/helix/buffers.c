@@ -3,7 +3,7 @@
 #include "coder.h"
 #include "esp_heap_caps.h"
 
-static ALWAYS_INLINE void ClearBuffer(void *buf, int nBytes)
+static inline __attribute__((always_inline)) void ClearBuffer(void *buf, int nBytes)
 {
     // Xtensa highly optimizes memset using 32-bit hardware stores
     memset(buf, 0, nBytes);

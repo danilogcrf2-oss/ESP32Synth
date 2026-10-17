@@ -137,6 +137,9 @@ stopRecording	KEYWORD2
 stopStream	KEYWORD2
 toAudio16	KEYWORD2
 toFloat	KEYWORD2
+armPWM  KEYWORD2
+unArmPWM    KEYWORD2
+isPWMArmed  KEYWORD2
 
 #######################################
 # Constants, Enums and Macros (LITERAL1)

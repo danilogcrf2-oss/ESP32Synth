@@ -47,6 +47,7 @@
 
 #include "coder.h"
 #include "assembly.h"
+#include <stdint.h>
 
 /* input to Polyphase = Q(DQ_FRACBITS_OUT-2), gain 2 bits in convolution
  *  we also have the implicit bias of 2^15 to add back, so net fraction bits = 
@@ -58,7 +59,7 @@
 
 #include "esp_attr.h"
 
-static ALWAYS_INLINE short ClipToShort(int x, int fracBits)
+static inline __attribute__((always_inline)) short ClipToShort(int x, int fracBits)
 {
     x >>= fracBits;
     

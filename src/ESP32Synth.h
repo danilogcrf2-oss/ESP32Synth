@@ -126,7 +126,14 @@ enum SynthOutputMode : uint8_t {
     SMODE_DAC,
     SMODE_PWM,    
     SMODE_CUSTOM,
-    SMODE_HEADLESS// <--- New! for when only recording a sound file.
+    SMODE_HEADLESS
+};
+
+enum SynthPWMState : uint8_t {
+    PWM_STATE_MUTED = 0,    // 0% duty (0V ground, zero coil dissipation)
+    PWM_STATE_RAMP_UP = 1,  // S-curve ramp from 0% to 50%
+    PWM_STATE_ACTIVE = 2,   // 50% duty baseline + audio
+    PWM_STATE_RAMP_DOWN = 3 // S-curve ramp from 50% to 0%
 };
 
 enum WaveType : int8_t {
@@ -540,6 +547,14 @@ public:
     uint32_t pwm_block_samples = 0;
     SemaphoreHandle_t pwm_sema = NULL;
     void* pwm_timer = NULL;
+    volatile SynthPWMState pwm_state = PWM_STATE_ACTIVE;
+    volatile uint32_t pwm_ramp_phase = 0;
+    volatile uint32_t pwm_ramp_inc = 0;
+
+    // --- PWM Thermal & Click Protection ---
+    void armPWM(uint16_t rampMs = 20, bool wait = true);
+    void unArmPWM(uint16_t rampMs = 20, bool wait = true);
+    bool isPWMArmed();
 
 private:
     struct WavetableEntry {

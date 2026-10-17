@@ -457,3 +457,57 @@ void ESP32Synth::setDSPParam(uint8_t paramId, int16_t value) {
         this->dp[paramId] = value;
     }
 }
+
+// --- PWM Thermal & Click Protection ---
+
+void ESP32Synth::armPWM(uint16_t rampMs, bool wait) {
+    if (currentMode != SMODE_PWM || !_running) return;
+    if (pwm_state == PWM_STATE_ACTIVE) return;
+
+    if (rampMs == 0) {
+        pwm_state = PWM_STATE_ACTIVE;
+        pwm_ramp_phase = 0x80000000UL;
+        return;
+    }
+
+    uint32_t totalSamples = (uint32_t)(((uint64_t)rampMs * _sampleRate) / 1000ULL);
+    if (totalSamples == 0) totalSamples = 1;
+
+    pwm_ramp_inc = 0x80000000UL / totalSamples;
+    pwm_ramp_phase = 0;
+    pwm_state = PWM_STATE_RAMP_UP;
+
+    if (wait) {
+        while (pwm_state == PWM_STATE_RAMP_UP && _running) {
+            vTaskDelay(pdMS_TO_TICKS(1));
+        }
+    }
+}
+
+void ESP32Synth::unArmPWM(uint16_t rampMs, bool wait) {
+    if (currentMode != SMODE_PWM || !_running) return;
+    if (pwm_state == PWM_STATE_MUTED) return;
+
+    if (rampMs == 0) {
+        pwm_state = PWM_STATE_MUTED;
+        pwm_ramp_phase = 0;
+        return;
+    }
+
+    uint32_t totalSamples = (uint32_t)(((uint64_t)rampMs * _sampleRate) / 1000ULL);
+    if (totalSamples == 0) totalSamples = 1;
+
+    pwm_ramp_inc = 0x80000000UL / totalSamples;
+    pwm_ramp_phase = 0x80000000UL;
+    pwm_state = PWM_STATE_RAMP_DOWN;
+
+    if (wait) {
+        while (pwm_state == PWM_STATE_RAMP_DOWN && _running) {
+            vTaskDelay(pdMS_TO_TICKS(1));
+        }
+    }
+}
+
+bool ESP32Synth::isPWMArmed() {
+    return (pwm_state == PWM_STATE_ACTIVE || pwm_state == PWM_STATE_RAMP_UP);
+}
