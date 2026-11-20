@@ -60,6 +60,66 @@ static FORCE_INLINE IRAM_ATTR void renderBlockSample(Voice* __restrict__ vo, int
     int32_t        volBase    = ((uint32_t)vo->vol * vo->trmModGain) >> 8;
     bool           dir        = vo->sampleDirection;
 
+    if (UNLIKELY(sData->numChannels == 2)) {
+        if (envStep == 0) {
+            int32_t envSafe  = currentEnv >> 14;
+            envSafe         &= ~(envSafe >> 31);
+            int32_t finalVol = (int32_t)((envSafe * volBase) >> 14);
+            if (sData->depth == BITS_16) {
+                const int16_t* data = (const int16_t*)sData->data;
+                for (int i = 0; i < samples; i++) {
+                    uint32_t f = (uint32_t)(pos >> 16) << 1;
+                    int32_t mono = ((int32_t)data[f] + (int32_t)data[f + 1]) >> 1;
+                    mixBuffer[i] += (mono * finalVol) >> 16;
+                    ADVANCE_SAMPLE_POS
+                }
+            } else if (sData->depth == BITS_8) {
+                const uint8_t* data = (const uint8_t*)sData->data;
+                for (int i = 0; i < samples; i++) {
+                    uint32_t f = (uint32_t)(pos >> 16) << 1;
+                    int32_t l = ((int16_t)data[f] - 128) << 8;
+                    int32_t r = ((int16_t)data[f + 1] - 128) << 8;
+                    mixBuffer[i] += (((l + r) >> 1) * finalVol) >> 16;
+                    ADVANCE_SAMPLE_POS
+                }
+            } else {
+                const uint8_t* data = (const uint8_t*)sData->data;
+                for (int i = 0; i < samples; i++) {
+                    uint8_t b = data[(uint32_t)(pos >> 16)];
+                    int32_t l = ((int16_t)(b & 0x0F) - 8) * 4096;
+                    int32_t r = ((int16_t)(b >> 4) - 8) * 4096;
+                    mixBuffer[i] += (((l + r) >> 1) * finalVol) >> 16;
+                    ADVANCE_SAMPLE_POS
+                }
+            }
+        } else {
+            for (int i = 0; i < samples; i++) {
+                int32_t envSafe  = currentEnv >> 14;
+                envSafe         &= ~(envSafe >> 31);
+                int32_t finalVol = (int32_t)((envSafe * volBase) >> 14);
+                int32_t mono = 0;
+                uint32_t idx = (uint32_t)(pos >> 16);
+                if (sData->depth == BITS_16) {
+                    const int16_t* data = (const int16_t*)sData->data;
+                    mono = ((int32_t)data[idx << 1] + (int32_t)data[(idx << 1) + 1]) >> 1;
+                } else if (sData->depth == BITS_8) {
+                    const uint8_t* data = (const uint8_t*)sData->data;
+                    mono = ((((int16_t)data[idx << 1] - 128) << 8) + (((int16_t)data[(idx << 1) + 1] - 128) << 8)) >> 1;
+                } else {
+                    const uint8_t* data = (const uint8_t*)sData->data;
+                    uint8_t b = data[idx];
+                    mono = ((((int16_t)(b & 0x0F) - 8) * 4096) + (((int16_t)(b >> 4) - 8) * 4096)) >> 1;
+                }
+                mixBuffer[i] += (mono * finalVol) >> 16;
+                currentEnv += envStep;
+                ADVANCE_SAMPLE_POS
+            }
+        }
+        vo->samplePos1616 = pos;
+        vo->sampleDirection = dir;
+        return;
+    }
+
     if (envStep == 0) {
         int32_t envSafe  = currentEnv >> 14;
         envSafe         &= ~(envSafe >> 31);
@@ -566,9 +626,118 @@ static FORCE_INLINE IRAM_ATTR void renderBlockNoise(Voice* __restrict__ vo, int3
 }
 
 // Render: Stream from RAM Buffer
+#if SYNTH_STEREO
+static FORCE_INLINE IRAM_ATTR void renderBlockStream(Voice* __restrict__ vo, StreamTrack* __restrict__ streamsArr, int32_t* __restrict__ mixL, int32_t* __restrict__ mixR, int samples, int32_t startEnv, int32_t envStep) {
+    if (vo->streamTrackId < 0 || vo->streamTrackId >= MAX_STREAMS) return;
+    StreamTrack* trk = &streamsArr[vo->streamTrackId];
+    if (UNLIKELY(!trk->buffer)) return;
+    if (trk->seeking) return;
+    if (!trk->playing && trk->head == trk->tail) {
+        vo->active = false;
+        return;
+    }
+    if (!trk->playing) return;
+
+    int32_t  currentEnv = startEnv;
+    int32_t  volBase    = ((uint32_t)vo->vol * vo->trmModGain) >> 8;
+    int32_t  volBaseL   = (volBase * vo->panGainL) >> 15;
+    int32_t  volBaseR   = (volBase * vo->panGainR) >> 15;
+    uint32_t inc        = vo->sampleInc1616;
+    uint32_t accum      = vo->streamFracAccum;
+    uint16_t tail       = trk->tail;
+    uint16_t head       = trk->head;
+    uint16_t width      = vo->stereoWidth;
+
+    if (envStep == 0) {
+        int32_t envSafe   = currentEnv >> 14;
+        envSafe          &= ~(envSafe >> 31);
+        int32_t finalVolL = (int32_t)((envSafe * volBaseL) >> 14);
+        int32_t finalVolR = (int32_t)((envSafe * volBaseR) >> 14);
+
+        if (width == 256) {
+            for (int i = 0; i < samples; i++) {
+                accum += inc;
+                uint32_t stepsToConsume = accum >> 16;
+                accum &= 0xFFFF;
+                if (stepsToConsume > 0) {
+                    uint16_t available = (STREAM_BUF_SAMPLES + head - tail) & STREAM_BUF_MASK;
+                    if (stepsToConsume > available) stepsToConsume = available;
+                    tail = (tail + stepsToConsume) & STREAM_BUF_MASK;
+                    trk->samplesPlayed += stepsToConsume;
+                }
+                StereoSample s1 = trk->buffer[tail];
+                StereoSample s2 = trk->buffer[(tail + 1) & STREAM_BUF_MASK];
+                int32_t frac15  = (int32_t)(accum >> 1);
+                int32_t smpL    = s1.l + (((s2.l - s1.l) * frac15) >> 15);
+                int32_t smpR    = s1.r + (((s2.r - s1.r) * frac15) >> 15);
+                mixL[i] += (smpL * finalVolL) >> 16;
+                mixR[i] += (smpR * finalVolR) >> 16;
+            }
+        } else {
+            for (int i = 0; i < samples; i++) {
+                accum += inc;
+                uint32_t stepsToConsume = accum >> 16;
+                accum &= 0xFFFF;
+                if (stepsToConsume > 0) {
+                    uint16_t available = (STREAM_BUF_SAMPLES + head - tail) & STREAM_BUF_MASK;
+                    if (stepsToConsume > available) stepsToConsume = available;
+                    tail = (tail + stepsToConsume) & STREAM_BUF_MASK;
+                    trk->samplesPlayed += stepsToConsume;
+                }
+                StereoSample s1 = trk->buffer[tail];
+                StereoSample s2 = trk->buffer[(tail + 1) & STREAM_BUF_MASK];
+                int32_t frac15  = (int32_t)(accum >> 1);
+                int32_t smpL    = s1.l + (((s2.l - s1.l) * frac15) >> 15);
+                int32_t smpR    = s1.r + (((s2.r - s1.r) * frac15) >> 15);
+                int32_t mid     = (smpL + smpR) >> 1;
+                int32_t side    = ((smpL - smpR) * (int32_t)width) >> 9;
+                smpL = mid + side; smpR = mid - side;
+                if (smpL > 32767) smpL = 32767; else if (smpL < -32768) smpL = -32768;
+                if (smpR > 32767) smpR = 32767; else if (smpR < -32768) smpR = -32768;
+                mixL[i] += (smpL * finalVolL) >> 16;
+                mixR[i] += (smpR * finalVolR) >> 16;
+            }
+        }
+    } else {
+        for (int i = 0; i < samples; i++) {
+            accum += inc;
+            uint32_t stepsToConsume = accum >> 16;
+            accum &= 0xFFFF;
+            if (stepsToConsume > 0) {
+                uint16_t available = (STREAM_BUF_SAMPLES + head - tail) & STREAM_BUF_MASK;
+                if (stepsToConsume > available) stepsToConsume = available;
+                tail = (tail + stepsToConsume) & STREAM_BUF_MASK;
+                trk->samplesPlayed += stepsToConsume;
+            }
+            StereoSample s1 = trk->buffer[tail];
+            StereoSample s2 = trk->buffer[(tail + 1) & STREAM_BUF_MASK];
+            int32_t frac15  = (int32_t)(accum >> 1);
+            int32_t smpL    = s1.l + (((s2.l - s1.l) * frac15) >> 15);
+            int32_t smpR    = s1.r + (((s2.r - s1.r) * frac15) >> 15);
+            if (width != 256) {
+                int32_t mid  = (smpL + smpR) >> 1;
+                int32_t side = ((smpL - smpR) * (int32_t)width) >> 9;
+                smpL = mid + side; smpR = mid - side;
+                if (smpL > 32767) smpL = 32767; else if (smpL < -32768) smpL = -32768;
+                if (smpR > 32767) smpR = 32767; else if (smpR < -32768) smpR = -32768;
+            }
+            int32_t envSafe   = currentEnv >> 14;
+            envSafe          &= ~(envSafe >> 31);
+            int32_t finalVolL = (int32_t)((envSafe * volBaseL) >> 14);
+            int32_t finalVolR = (int32_t)((envSafe * volBaseR) >> 14);
+            mixL[i]    += (smpL * finalVolL) >> 16;
+            mixR[i]    += (smpR * finalVolR) >> 16;
+            currentEnv += envStep;
+        }
+    }
+    vo->streamFracAccum = accum;
+    trk->tail           = tail;
+}
+#else
 static FORCE_INLINE IRAM_ATTR void renderBlockStream(Voice* __restrict__ vo, StreamTrack* __restrict__ streamsArr, int32_t* __restrict__ mixBuffer, int samples, int32_t startEnv, int32_t envStep) {
     if (vo->streamTrackId < 0 || vo->streamTrackId >= MAX_STREAMS) return;
     StreamTrack* trk = &streamsArr[vo->streamTrackId];
+    if (UNLIKELY(!trk->buffer)) return;
     if (trk->seeking) return;
     if (!trk->playing && trk->head == trk->tail) {
         vo->active = false;
@@ -631,6 +800,682 @@ static FORCE_INLINE IRAM_ATTR void renderBlockStream(Voice* __restrict__ vo, Str
     vo->streamFracAccum = accum;
     trk->tail           = tail;
 }
+#endif
+
+#if SYNTH_STEREO
+static FORCE_INLINE IRAM_ATTR void renderBlockSampleStereo(Voice* __restrict__ vo, int32_t* __restrict__ mixL, int32_t* __restrict__ mixR, int samples, int32_t startEnv, int32_t envStep) {
+    if (vo->sampleFinished) return;
+    const SampleData* sData = &registeredSamples[vo->curSampleId];
+    if (!sData->data) return;
+
+    const uint32_t len      = sData->length;
+    uint64_t       pos      = vo->samplePos1616;
+    const uint32_t inc      = vo->sampleInc1616;
+    const uint32_t lStart   = vo->sampleLoopStart;
+    const uint32_t lEnd     = (vo->sampleLoopEnd > 0 && vo->sampleLoopEnd <= len) ? vo->sampleLoopEnd : len;
+    const uint64_t lStart16 = (uint64_t)lStart << 16;
+    const uint64_t lEnd16   = (uint64_t)lEnd << 16;
+    int32_t        currentEnv = startEnv;
+    int32_t        volBase    = ((uint32_t)vo->vol * vo->trmModGain) >> 8;
+    int32_t        volBaseL   = (volBase * vo->panGainL) >> 15;
+    int32_t        volBaseR   = (volBase * vo->panGainR) >> 15;
+    bool           dir        = vo->sampleDirection;
+
+    if (sData->numChannels == 2) {
+        uint16_t width = vo->stereoWidth;
+        if (envStep == 0) {
+            int32_t envSafe   = currentEnv >> 14;
+            envSafe          &= ~(envSafe >> 31);
+            int32_t finalVolL = (int32_t)((envSafe * volBaseL) >> 14);
+            int32_t finalVolR = (int32_t)((envSafe * volBaseR) >> 14);
+            for (int i = 0; i < samples; i++) {
+                uint32_t idx = (uint32_t)(pos >> 16);
+                int32_t smpL, smpR;
+                if (sData->depth == BITS_16) {
+                    const int16_t* data = (const int16_t*)sData->data;
+                    smpL = data[idx << 1]; smpR = data[(idx << 1) + 1];
+                } else if (sData->depth == BITS_8) {
+                    const uint8_t* data = (const uint8_t*)sData->data;
+                    smpL = ((int16_t)data[idx << 1] - 128) << 8;
+                    smpR = ((int16_t)data[(idx << 1) + 1] - 128) << 8;
+                } else {
+                    const uint8_t* data = (const uint8_t*)sData->data;
+                    uint8_t b = data[idx];
+                    smpL = ((int16_t)(b & 0x0F) - 8) * 4096;
+                    smpR = ((int16_t)(b >> 4) - 8) * 4096;
+                }
+                if (width != 256) {
+                    int32_t mid = (smpL + smpR) >> 1;
+                    int32_t side = ((smpL - smpR) * (int32_t)width) >> 9;
+                    smpL = mid + side; smpR = mid - side;
+                    if (smpL > 32767) smpL = 32767; else if (smpL < -32768) smpL = -32768;
+                    if (smpR > 32767) smpR = 32767; else if (smpR < -32768) smpR = -32768;
+                }
+                mixL[i] += (smpL * finalVolL) >> 16;
+                mixR[i] += (smpR * finalVolR) >> 16;
+                ADVANCE_SAMPLE_POS
+            }
+        } else {
+            for (int i = 0; i < samples; i++) {
+                uint32_t idx = (uint32_t)(pos >> 16);
+                int32_t smpL, smpR;
+                if (sData->depth == BITS_16) {
+                    const int16_t* data = (const int16_t*)sData->data;
+                    smpL = data[idx << 1]; smpR = data[(idx << 1) + 1];
+                } else if (sData->depth == BITS_8) {
+                    const uint8_t* data = (const uint8_t*)sData->data;
+                    smpL = ((int16_t)data[idx << 1] - 128) << 8;
+                    smpR = ((int16_t)data[(idx << 1) + 1] - 128) << 8;
+                } else {
+                    const uint8_t* data = (const uint8_t*)sData->data;
+                    uint8_t b = data[idx];
+                    smpL = ((int16_t)(b & 0x0F) - 8) * 4096;
+                    smpR = ((int16_t)(b >> 4) - 8) * 4096;
+                }
+                if (width != 256) {
+                    int32_t mid = (smpL + smpR) >> 1;
+                    int32_t side = ((smpL - smpR) * (int32_t)width) >> 9;
+                    smpL = mid + side; smpR = mid - side;
+                    if (smpL > 32767) smpL = 32767; else if (smpL < -32768) smpL = -32768;
+                    if (smpR > 32767) smpR = 32767; else if (smpR < -32768) smpR = -32768;
+                }
+                int32_t envSafe   = currentEnv >> 14;
+                envSafe          &= ~(envSafe >> 31);
+                int32_t finalVolL = (int32_t)((envSafe * volBaseL) >> 14);
+                int32_t finalVolR = (int32_t)((envSafe * volBaseR) >> 14);
+                mixL[i] += (smpL * finalVolL) >> 16;
+                mixR[i] += (smpR * finalVolR) >> 16;
+                currentEnv += envStep;
+                ADVANCE_SAMPLE_POS
+            }
+        }
+    } else if (envStep == 0) {
+        int32_t envSafe   = currentEnv >> 14;
+        envSafe          &= ~(envSafe >> 31);
+        int32_t finalVolL = (int32_t)((envSafe * volBaseL) >> 14);
+        int32_t finalVolR = (int32_t)((envSafe * volBaseR) >> 14);
+
+        switch (sData->depth) {
+            case BITS_16: {
+                const int16_t* data = (const int16_t*)sData->data;
+                for (int i = 0; i < samples; i++) {
+                    int32_t s = data[(uint32_t)(pos >> 16)];
+                    mixL[i] += (s * finalVolL) >> 16;
+                    mixR[i] += (s * finalVolR) >> 16;
+                    ADVANCE_SAMPLE_POS
+                }
+                break;
+            }
+            case BITS_8: {
+                const uint8_t* data = (const uint8_t*)sData->data;
+                for (int i = 0; i < samples; i++) {
+                    int32_t s = ((int16_t)data[(uint32_t)(pos >> 16)] - 128) << 8;
+                    mixL[i] += (s * finalVolL) >> 16;
+                    mixR[i] += (s * finalVolR) >> 16;
+                    ADVANCE_SAMPLE_POS
+                }
+                break;
+            }
+            case BITS_4: {
+                const uint8_t* data = (const uint8_t*)sData->data;
+                for (int i = 0; i < samples; i++) {
+                    uint32_t idx = (uint32_t)(pos >> 16);
+                    int32_t s = ((int16_t)((data[idx >> 1] >> ((idx & 1) << 2)) & 0x0F) - 8) * 4096;
+                    mixL[i] += (s * finalVolL) >> 16;
+                    mixR[i] += (s * finalVolR) >> 16;
+                    ADVANCE_SAMPLE_POS
+                }
+                break;
+            }
+        }
+    } else {
+        switch (sData->depth) {
+            case BITS_16: {
+                const int16_t* data = (const int16_t*)sData->data;
+                for (int i = 0; i < samples; i++) {
+                    int32_t envSafe   = currentEnv >> 14;
+                    envSafe          &= ~(envSafe >> 31);
+                    int32_t finalVolL = (int32_t)((envSafe * volBaseL) >> 14);
+                    int32_t finalVolR = (int32_t)((envSafe * volBaseR) >> 14);
+                    int32_t s = data[(uint32_t)(pos >> 16)];
+                    mixL[i] += (s * finalVolL) >> 16;
+                    mixR[i] += (s * finalVolR) >> 16;
+                    currentEnv += envStep;
+                    ADVANCE_SAMPLE_POS
+                }
+                break;
+            }
+            case BITS_8: {
+                const uint8_t* data = (const uint8_t*)sData->data;
+                for (int i = 0; i < samples; i++) {
+                    int32_t envSafe   = currentEnv >> 14;
+                    envSafe          &= ~(envSafe >> 31);
+                    int32_t finalVolL = (int32_t)((envSafe * volBaseL) >> 14);
+                    int32_t finalVolR = (int32_t)((envSafe * volBaseR) >> 14);
+                    int32_t s = ((int16_t)data[(uint32_t)(pos >> 16)] - 128) << 8;
+                    mixL[i] += (s * finalVolL) >> 16;
+                    mixR[i] += (s * finalVolR) >> 16;
+                    currentEnv += envStep;
+                    ADVANCE_SAMPLE_POS
+                }
+                break;
+            }
+            case BITS_4: {
+                const uint8_t* data = (const uint8_t*)sData->data;
+                for (int i = 0; i < samples; i++) {
+                    int32_t envSafe   = currentEnv >> 14;
+                    envSafe          &= ~(envSafe >> 31);
+                    int32_t finalVolL = (int32_t)((envSafe * volBaseL) >> 14);
+                    int32_t finalVolR = (int32_t)((envSafe * volBaseR) >> 14);
+                    uint32_t idx = (uint32_t)(pos >> 16);
+                    int32_t s = ((int16_t)((data[idx >> 1] >> ((idx & 1) << 2)) & 0x0F) - 8) * 4096;
+                    mixL[i] += (s * finalVolL) >> 16;
+                    mixR[i] += (s * finalVolR) >> 16;
+                    currentEnv += envStep;
+                    ADVANCE_SAMPLE_POS
+                }
+                break;
+            }
+        }
+    }
+    vo->samplePos1616   = pos;
+    vo->sampleDirection = dir;
+}
+
+static FORCE_INLINE IRAM_ATTR void renderBlockWavetableStereo(Voice* __restrict__ vo, int32_t* __restrict__ mixL, int32_t* __restrict__ mixR, int samples, int32_t startEnv, int32_t envStep) {
+    if (!vo->wtData) return;
+
+    int32_t        currentEnv = startEnv;
+    int32_t        volBase    = ((uint32_t)vo->vol * vo->trmModGain) >> 8;
+    int32_t        volBaseL   = (volBase * vo->panGainL) >> 15;
+    int32_t        volBaseR   = (volBase * vo->panGainR) >> 15;
+    uint32_t       ph         = vo->phase;
+    uint32_t       inc        = vo->phaseInc + vo->vibOffset;
+    const uint32_t size       = vo->wtSize;
+
+#if defined(CONFIG_IDF_TARGET_ESP32S3)
+    v4u32 vInc      = {0, inc, inc * 2, inc * 3};
+    v4u32 vIncStep  = {inc * 4, inc * 4, inc * 4, inc * 4};
+    v4i32 vEnvStep  = {0, envStep, envStep * 2, envStep * 3};
+    v4i32 vEnvStep4 = {envStep * 4, envStep * 4, envStep * 4, envStep * 4};
+    v4i32 vEnv      = {currentEnv, currentEnv, currentEnv, currentEnv};
+    vEnv += vEnvStep;
+    v4u32 vPh = {ph, ph, ph, ph};
+    vPh += vInc;
+#endif
+
+    if (envStep == 0) {
+        int32_t envSafe   = currentEnv >> 14;
+        envSafe          &= ~(envSafe >> 31);
+        int32_t finalVolL = (int32_t)((envSafe * volBaseL) >> 14);
+        int32_t finalVolR = (int32_t)((envSafe * volBaseR) >> 14);
+        if ((finalVolL | finalVolR) == 0) { vo->phase += inc * samples; return; }
+
+        switch (vo->depth) {
+            case BITS_16: {
+                const int16_t* data = (const int16_t*)vo->wtData;
+#if defined(CONFIG_IDF_TARGET_ESP32S3)
+                v4i32 vVolL = {finalVolL, finalVolL, finalVolL, finalVolL};
+                v4i32 vVolR = {finalVolR, finalVolR, finalVolR, finalVolR};
+                for (int i = 0; i < samples; i += 4) {
+                    v4u32 vIdx = ((vPh >> 16) * size) >> 16;
+                    v4i32 vals = { data[vIdx[0]], data[vIdx[1]], data[vIdx[2]], data[vIdx[3]] };
+                    *(v4i32*)&mixL[i] += (vals * vVolL) >> 16;
+                    *(v4i32*)&mixR[i] += (vals * vVolR) >> 16;
+                    vPh += vIncStep;
+                }
+                ph += inc * samples;
+#else
+                for (int i = 0; i < samples; i++) {
+                    int32_t s = data[((ph >> 16) * size) >> 16];
+                    mixL[i] += (s * finalVolL) >> 16;
+                    mixR[i] += (s * finalVolR) >> 16;
+                    ph += inc;
+                }
+#endif
+                break;
+            }
+            case BITS_8: {
+                const uint8_t* data = (const uint8_t*)vo->wtData;
+#if defined(CONFIG_IDF_TARGET_ESP32S3)
+                v4i32 vVolL = {finalVolL, finalVolL, finalVolL, finalVolL};
+                v4i32 vVolR = {finalVolR, finalVolR, finalVolR, finalVolR};
+                for (int i = 0; i < samples; i += 4) {
+                    v4u32 vIdx = ((vPh >> 16) * size) >> 16;
+                    v4i32 vals = { (int32_t)data[vIdx[0]], (int32_t)data[vIdx[1]], (int32_t)data[vIdx[2]], (int32_t)data[vIdx[3]] };
+                    vals = (vals - 128) << 8;
+                    *(v4i32*)&mixL[i] += (vals * vVolL) >> 16;
+                    *(v4i32*)&mixR[i] += (vals * vVolR) >> 16;
+                    vPh += vIncStep;
+                }
+                ph += inc * samples;
+#else
+                for (int i = 0; i < samples; i++) {
+                    int32_t s = ((int16_t)data[((ph >> 16) * size) >> 16] - 128) << 8;
+                    mixL[i] += (s * finalVolL) >> 16;
+                    mixR[i] += (s * finalVolR) >> 16;
+                    ph += inc;
+                }
+#endif
+                break;
+            }
+            case BITS_4: {
+                const uint8_t* data = (const uint8_t*)vo->wtData;
+                for (int i = 0; i < samples; i++) {
+                    uint32_t idx = ((ph >> 16) * size) >> 16;
+                    int32_t s = ((int16_t)((data[idx >> 1] >> ((idx & 1) << 2)) & 0x0F) - 8) * 4096;
+                    mixL[i] += (s * finalVolL) >> 16;
+                    mixR[i] += (s * finalVolR) >> 16;
+                    ph += inc;
+                }
+                break;
+            }
+        }
+    } else {
+        switch (vo->depth) {
+            case BITS_16: {
+                const int16_t* data = (const int16_t*)vo->wtData;
+#if defined(CONFIG_IDF_TARGET_ESP32S3)
+                for (int i = 0; i < samples; i += 4) {
+                    v4i32 vEnvShifted = vEnv >> 14;
+                    vEnvShifted      &= ~(vEnvShifted >> 31);
+                    v4i32 vFinalVolL  = (vEnvShifted * volBaseL) >> 14;
+                    v4i32 vFinalVolR  = (vEnvShifted * volBaseR) >> 14;
+                    v4u32 vIdx        = ((vPh >> 16) * size) >> 16;
+                    v4i32 vals        = { data[vIdx[0]], data[vIdx[1]], data[vIdx[2]], data[vIdx[3]] };
+                    *(v4i32*)&mixL[i] += (vals * vFinalVolL) >> 16;
+                    *(v4i32*)&mixR[i] += (vals * vFinalVolR) >> 16;
+                    vPh += vIncStep; vEnv += vEnvStep4;
+                }
+                ph += inc * samples;
+#else
+                for (int i = 0; i < samples; i++) {
+                    int32_t envSafe   = currentEnv >> 14;
+                    envSafe          &= ~(envSafe >> 31);
+                    int32_t finalVolL = (envSafe * volBaseL) >> 14;
+                    int32_t finalVolR = (envSafe * volBaseR) >> 14;
+                    int32_t s = data[((ph >> 16) * size) >> 16];
+                    mixL[i] += (s * finalVolL) >> 16;
+                    mixR[i] += (s * finalVolR) >> 16;
+                    ph += inc; currentEnv += envStep;
+                }
+#endif
+                break;
+            }
+            case BITS_8: {
+                const uint8_t* data = (const uint8_t*)vo->wtData;
+#if defined(CONFIG_IDF_TARGET_ESP32S3)
+                for (int i = 0; i < samples; i += 4) {
+                    v4i32 vEnvShifted = vEnv >> 14;
+                    vEnvShifted      &= ~(vEnvShifted >> 31);
+                    v4i32 vFinalVolL  = (vEnvShifted * volBaseL) >> 14;
+                    v4i32 vFinalVolR  = (vEnvShifted * volBaseR) >> 14;
+                    v4u32 vIdx        = ((vPh >> 16) * size) >> 16;
+                    v4i32 vals        = { (int32_t)data[vIdx[0]], (int32_t)data[vIdx[1]], (int32_t)data[vIdx[2]], (int32_t)data[vIdx[3]] };
+                    vals = (vals - 128) << 8;
+                    *(v4i32*)&mixL[i] += (vals * vFinalVolL) >> 16;
+                    *(v4i32*)&mixR[i] += (vals * vFinalVolR) >> 16;
+                    vPh += vIncStep; vEnv += vEnvStep4;
+                }
+                ph += inc * samples;
+#else
+                for (int i = 0; i < samples; i++) {
+                    int32_t envSafe   = currentEnv >> 14;
+                    envSafe          &= ~(envSafe >> 31);
+                    int32_t finalVolL = (envSafe * volBaseL) >> 14;
+                    int32_t finalVolR = (envSafe * volBaseR) >> 14;
+                    int32_t s = ((int16_t)data[((ph >> 16) * size) >> 16] - 128) << 8;
+                    mixL[i] += (s * finalVolL) >> 16;
+                    mixR[i] += (s * finalVolR) >> 16;
+                    ph += inc; currentEnv += envStep;
+                }
+#endif
+                break;
+            }
+            case BITS_4: {
+                const uint8_t* data = (const uint8_t*)vo->wtData;
+                for (int i = 0; i < samples; i++) {
+                    uint32_t idx = ((ph >> 16) * size) >> 16;
+                    int32_t envSafe   = currentEnv >> 14;
+                    envSafe          &= ~(envSafe >> 31);
+                    int32_t finalVolL = (envSafe * volBaseL) >> 14;
+                    int32_t finalVolR = (envSafe * volBaseR) >> 14;
+                    int32_t s = ((int16_t)((data[idx >> 1] >> ((idx & 1) << 2)) & 0x0F) - 8) * 4096;
+                    mixL[i] += (s * finalVolL) >> 16;
+                    mixR[i] += (s * finalVolR) >> 16;
+                    ph += inc; currentEnv += envStep;
+                }
+                break;
+            }
+        }
+    }
+    vo->phase = ph;
+}
+
+static FORCE_INLINE IRAM_ATTR void renderBlockBasicStereo(Voice* __restrict__ vo, int32_t* __restrict__ mixL, int32_t* __restrict__ mixR, int samples, int32_t startEnv, int32_t envStep) {
+    int32_t        currentEnv = startEnv;
+    int32_t        volBase    = ((uint32_t)vo->vol * vo->trmModGain) >> 8;
+    int32_t        volBaseL   = (volBase * vo->panGainL) >> 15;
+    int32_t        volBaseR   = (volBase * vo->panGainR) >> 15;
+    uint32_t       ph         = vo->phase;
+    uint32_t       inc        = vo->phaseInc + vo->vibOffset;
+    const WaveType type       = vo->type;
+    const uint32_t pw         = vo->pulseWidth;
+
+#if defined(CONFIG_IDF_TARGET_ESP32S3)
+    v4u32 vInc      = {0, inc, inc * 2, inc * 3};
+    v4u32 vIncStep  = {inc * 4, inc * 4, inc * 4, inc * 4};
+    v4i32 vEnvStep  = {0, envStep, envStep * 2, envStep * 3};
+    v4i32 vEnvStep4 = {envStep * 4, envStep * 4, envStep * 4, envStep * 4};
+    v4i32 vEnv      = {currentEnv, currentEnv, currentEnv, currentEnv};
+    vEnv += vEnvStep;
+    v4u32 vPh = {ph, ph, ph, ph};
+    vPh += vInc;
+#endif
+
+    if (envStep == 0) {
+        int32_t envSafe   = currentEnv >> 14;
+        envSafe          &= ~(envSafe >> 31);
+        int32_t finalVolL = (int32_t)((envSafe * volBaseL) >> 14);
+        int32_t finalVolR = (int32_t)((envSafe * volBaseR) >> 14);
+        if ((finalVolL | finalVolR) == 0) { vo->phase += inc * samples; return; }
+
+        switch (type) {
+            case WAVE_SAW:
+#if defined(CONFIG_IDF_TARGET_ESP32S3)
+                {
+                    v4i32 vVolL = {finalVolL, finalVolL, finalVolL, finalVolL};
+                    v4i32 vVolR = {finalVolR, finalVolR, finalVolR, finalVolR};
+                    for (int i = 0; i < samples; i += 4) {
+                        v4i32 shifted = (v4i32)vPh >> 16;
+                        *(v4i32*)&mixL[i] += (shifted * vVolL) >> 16;
+                        *(v4i32*)&mixR[i] += (shifted * vVolR) >> 16;
+                        vPh += vIncStep;
+                    }
+                    ph += inc * samples;
+                }
+#else
+                for (int i = 0; i < samples; i++) {
+                    int16_t s = (int16_t)(ph >> 16);
+                    mixL[i] += (s * finalVolL) >> 16;
+                    mixR[i] += (s * finalVolR) >> 16;
+                    ph += inc;
+                }
+#endif
+                break;
+            case WAVE_SINE:
+#if defined(CONFIG_IDF_TARGET_ESP32S3)
+                {
+                    v4i32 vVolL = {finalVolL, finalVolL, finalVolL, finalVolL};
+                    v4i32 vVolR = {finalVolR, finalVolR, finalVolR, finalVolR};
+                    for (int i = 0; i < samples; i += 4) {
+#if SYNTH_INTERPOLATE_SINE
+                        uint32_t i0 = vPh[0] >> SINE_SHIFT;
+                        uint32_t i1 = vPh[1] >> SINE_SHIFT;
+                        uint32_t i2 = vPh[2] >> SINE_SHIFT;
+                        uint32_t i3 = vPh[3] >> SINE_SHIFT;
+                        int32_t s0 = sineLUT[i0] + ((((sineLUT[i0 + 1] - sineLUT[i0]) * (int32_t)((vPh[0] >> 4) & 0xFFFF))) >> 16);
+                        int32_t s1 = sineLUT[i1] + ((((sineLUT[i1 + 1] - sineLUT[i1]) * (int32_t)((vPh[1] >> 4) & 0xFFFF))) >> 16);
+                        int32_t s2 = sineLUT[i2] + ((((sineLUT[i2 + 1] - sineLUT[i2]) * (int32_t)((vPh[2] >> 4) & 0xFFFF))) >> 16);
+                        int32_t s3 = sineLUT[i3] + ((((sineLUT[i3 + 1] - sineLUT[i3]) * (int32_t)((vPh[3] >> 4) & 0xFFFF))) >> 16);
+                        v4i32 sines = { s0, s1, s2, s3 };
+#else
+                        v4i32 sines = { sineLUT[vPh[0] >> SINE_SHIFT], sineLUT[vPh[1] >> SINE_SHIFT], sineLUT[vPh[2] >> SINE_SHIFT], sineLUT[vPh[3] >> SINE_SHIFT] };
+#endif
+                        *(v4i32*)&mixL[i] += (sines * vVolL) >> 16;
+                        *(v4i32*)&mixR[i] += (sines * vVolR) >> 16;
+                        vPh += vIncStep;
+                    }
+                    ph += inc * samples;
+                }
+#else
+                for (int i = 0; i < samples; i++) {
+#if SYNTH_INTERPOLATE_SINE
+                    uint32_t idx = ph >> SINE_SHIFT;
+                    int32_t s0 = sineLUT[idx];
+                    int32_t s = s0 + ((((sineLUT[idx + 1] - s0) * (int32_t)((ph >> 4) & 0xFFFF))) >> 16);
+#else
+                    int32_t s = sineLUT[ph >> SINE_SHIFT];
+#endif
+                    mixL[i] += (s * finalVolL) >> 16;
+                    mixR[i] += (s * finalVolR) >> 16;
+                    ph += inc;
+                }
+#endif
+                break;
+            case WAVE_PULSE:
+#if defined(CONFIG_IDF_TARGET_ESP32S3)
+                {
+                    int32_t sVolPosL = (finalVolL * 32767) >> 16;
+                    int32_t sVolPosR = (finalVolR * 32767) >> 16;
+                    v4u32 vPw       = {pw, pw, pw, pw};
+                    v4i32 vNegL     = {-sVolPosL, -sVolPosL, -sVolPosL, -sVolPosL};
+                    v4i32 vPos2L    = {sVolPosL * 2, sVolPosL * 2, sVolPosL * 2, sVolPosL * 2};
+                    v4i32 vNegR     = {-sVolPosR, -sVolPosR, -sVolPosR, -sVolPosR};
+                    v4i32 vPos2R    = {sVolPosR * 2, sVolPosR * 2, sVolPosR * 2, sVolPosR * 2};
+                    for (int i = 0; i < samples; i += 4) {
+                        v4i32 mask = ((v4i32)((vPh >> 1) - (vPw >> 1))) >> 31;
+                        *(v4i32*)&mixL[i] += vNegL + (mask & vPos2L);
+                        *(v4i32*)&mixR[i] += vNegR + (mask & vPos2R);
+                        vPh += vIncStep;
+                    }
+                    ph += inc * samples;
+                }
+#else
+                for (int i = 0; i < samples; i++) {
+                    int32_t s = (ph < pw) ? 32767 : -32767;
+                    mixL[i] += (s * finalVolL) >> 16;
+                    mixR[i] += (s * finalVolR) >> 16;
+                    ph += inc;
+                }
+#endif
+                break;
+            case WAVE_TRIANGLE:
+#if defined(CONFIG_IDF_TARGET_ESP32S3)
+                {
+                    v4i32 vVolL = {finalVolL, finalVolL, finalVolL, finalVolL};
+                    v4i32 vVolR = {finalVolR, finalVolR, finalVolR, finalVolR};
+                    for (int i = 0; i < samples; i += 4) {
+                        v4i32 saw = (v4i32)vPh >> 16;
+                        v4i32 tri = (((saw ^ (saw >> 31)) * 2) - 32767);
+                        *(v4i32*)&mixL[i] += (tri * vVolL) >> 16;
+                        *(v4i32*)&mixR[i] += (tri * vVolR) >> 16;
+                        vPh += vIncStep;
+                    }
+                    ph += inc * samples;
+                }
+#else
+                for (int i = 0; i < samples; i++) {
+                    int16_t saw = (int16_t)(ph >> 16);
+                    int16_t tri = (int16_t)(((saw ^ (saw >> 15)) * 2) - 32767);
+                    mixL[i] += (tri * finalVolL) >> 16;
+                    mixR[i] += (tri * finalVolR) >> 16;
+                    ph += inc;
+                }
+#endif
+                break;
+            default: break;
+        }
+    } else {
+        switch (type) {
+            case WAVE_SAW:
+#if defined(CONFIG_IDF_TARGET_ESP32S3)
+                for (int i = 0; i < samples; i += 4) {
+                    v4i32 vEnvShifted = vEnv >> 14;
+                    vEnvShifted      &= ~(vEnvShifted >> 31);
+                    v4i32 vFinalVolL  = (vEnvShifted * volBaseL) >> 14;
+                    v4i32 vFinalVolR  = (vEnvShifted * volBaseR) >> 14;
+                    v4i32 shifted     = (v4i32)vPh >> 16;
+                    *(v4i32*)&mixL[i] += (shifted * vFinalVolL) >> 16;
+                    *(v4i32*)&mixR[i] += (shifted * vFinalVolR) >> 16;
+                    vPh += vIncStep; vEnv += vEnvStep4;
+                }
+                ph += inc * samples;
+#else
+                for (int i = 0; i < samples; i++) {
+                    int32_t envSafe   = currentEnv >> 14;
+                    envSafe          &= ~(envSafe >> 31);
+                    int32_t finalVolL = (envSafe * volBaseL) >> 14;
+                    int32_t finalVolR = (envSafe * volBaseR) >> 14;
+                    int16_t s = (int16_t)(ph >> 16);
+                    mixL[i] += (s * finalVolL) >> 16;
+                    mixR[i] += (s * finalVolR) >> 16;
+                    ph += inc; currentEnv += envStep;
+                }
+#endif
+                break;
+            case WAVE_SINE:
+#if defined(CONFIG_IDF_TARGET_ESP32S3)
+                for (int i = 0; i < samples; i += 4) {
+                    v4i32 vEnvShifted = vEnv >> 14;
+                    vEnvShifted      &= ~(vEnvShifted >> 31);
+                    v4i32 vFinalVolL  = (vEnvShifted * volBaseL) >> 14;
+                    v4i32 vFinalVolR  = (vEnvShifted * volBaseR) >> 14;
+#if SYNTH_INTERPOLATE_SINE
+                    uint32_t i0 = vPh[0] >> SINE_SHIFT;
+                    uint32_t i1 = vPh[1] >> SINE_SHIFT;
+                    uint32_t i2 = vPh[2] >> SINE_SHIFT;
+                    uint32_t i3 = vPh[3] >> SINE_SHIFT;
+                    int32_t s0 = sineLUT[i0] + ((((sineLUT[i0 + 1] - sineLUT[i0]) * (int32_t)((vPh[0] >> 4) & 0xFFFF))) >> 16);
+                    int32_t s1 = sineLUT[i1] + ((((sineLUT[i1 + 1] - sineLUT[i1]) * (int32_t)((vPh[1] >> 4) & 0xFFFF))) >> 16);
+                    int32_t s2 = sineLUT[i2] + ((((sineLUT[i2 + 1] - sineLUT[i2]) * (int32_t)((vPh[2] >> 4) & 0xFFFF))) >> 16);
+                    int32_t s3 = sineLUT[i3] + ((((sineLUT[i3 + 1] - sineLUT[i3]) * (int32_t)((vPh[3] >> 4) & 0xFFFF))) >> 16);
+                    v4i32 sines = { s0, s1, s2, s3 };
+#else
+                    v4i32 sines = { sineLUT[vPh[0] >> SINE_SHIFT], sineLUT[vPh[1] >> SINE_SHIFT], sineLUT[vPh[2] >> SINE_SHIFT], sineLUT[vPh[3] >> SINE_SHIFT] };
+#endif
+                    *(v4i32*)&mixL[i] += (sines * vFinalVolL) >> 16;
+                    *(v4i32*)&mixR[i] += (sines * vFinalVolR) >> 16;
+                    vPh += vIncStep; vEnv += vEnvStep4;
+                }
+                ph += inc * samples;
+#else
+                for (int i = 0; i < samples; i++) {
+                    int32_t envSafe   = currentEnv >> 14;
+                    envSafe          &= ~(envSafe >> 31);
+                    int32_t finalVolL = (envSafe * volBaseL) >> 14;
+                    int32_t finalVolR = (envSafe * volBaseR) >> 14;
+#if SYNTH_INTERPOLATE_SINE
+                    uint32_t idx = ph >> SINE_SHIFT;
+                    int32_t s0 = sineLUT[idx];
+                    int32_t s = s0 + ((((sineLUT[idx + 1] - s0) * (int32_t)((ph >> 4) & 0xFFFF))) >> 16);
+#else
+                    int32_t s = sineLUT[ph >> SINE_SHIFT];
+#endif
+                    mixL[i] += (s * finalVolL) >> 16;
+                    mixR[i] += (s * finalVolR) >> 16;
+                    ph += inc; currentEnv += envStep;
+                }
+#endif
+                break;
+            case WAVE_PULSE:
+#if defined(CONFIG_IDF_TARGET_ESP32S3)
+                {
+                    v4u32 vPw = {pw, pw, pw, pw};
+                    for (int i = 0; i < samples; i += 4) {
+                        v4i32 vEnvShifted = vEnv >> 14;
+                        vEnvShifted      &= ~(vEnvShifted >> 31);
+                        v4i32 vFinalVolL  = (vEnvShifted * volBaseL) >> 14;
+                        v4i32 vFinalVolR  = (vEnvShifted * volBaseR) >> 14;
+                        v4i32 mask        = ((v4i32)((vPh >> 1) - (vPw >> 1))) >> 31;
+                        v4i32 vVolPosL    = (vFinalVolL * 32767) >> 16;
+                        v4i32 vVolPosR    = (vFinalVolR * 32767) >> 16;
+                        *(v4i32*)&mixL[i] += (-vVolPosL) + (mask & (vVolPosL * 2));
+                        *(v4i32*)&mixR[i] += (-vVolPosR) + (mask & (vVolPosR * 2));
+                        vPh += vIncStep; vEnv += vEnvStep4;
+                    }
+                    ph += inc * samples;
+                }
+#else
+                for (int i = 0; i < samples; i++) {
+                    int32_t envSafe   = currentEnv >> 14;
+                    envSafe          &= ~(envSafe >> 31);
+                    int32_t finalVolL = (envSafe * volBaseL) >> 14;
+                    int32_t finalVolR = (envSafe * volBaseR) >> 14;
+                    int32_t s = (ph < pw) ? 32767 : -32767;
+                    mixL[i] += (s * finalVolL) >> 16;
+                    mixR[i] += (s * finalVolR) >> 16;
+                    ph += inc; currentEnv += envStep;
+                }
+#endif
+                break;
+            case WAVE_TRIANGLE:
+#if defined(CONFIG_IDF_TARGET_ESP32S3)
+                for (int i = 0; i < samples; i += 4) {
+                    v4i32 vEnvShifted = vEnv >> 14;
+                    vEnvShifted      &= ~(vEnvShifted >> 31);
+                    v4i32 vFinalVolL  = (vEnvShifted * volBaseL) >> 14;
+                    v4i32 vFinalVolR  = (vEnvShifted * volBaseR) >> 14;
+                    v4i32 saw         = (v4i32)vPh >> 16;
+                    v4i32 tri         = (((saw ^ (saw >> 31)) * 2) - 32767);
+                    *(v4i32*)&mixL[i] += (tri * vFinalVolL) >> 16;
+                    *(v4i32*)&mixR[i] += (tri * vFinalVolR) >> 16;
+                    vPh += vIncStep; vEnv += vEnvStep4;
+                }
+                ph += inc * samples;
+#else
+                for (int i = 0; i < samples; i++) {
+                    int32_t envSafe   = currentEnv >> 14;
+                    envSafe          &= ~(envSafe >> 31);
+                    int32_t finalVolL = (envSafe * volBaseL) >> 14;
+                    int32_t finalVolR = (envSafe * volBaseR) >> 14;
+                    int16_t saw = (int16_t)(ph >> 16);
+                    int16_t tri = (int16_t)(((saw ^ (saw >> 15)) * 2) - 32767);
+                    mixL[i] += (tri * finalVolL) >> 16;
+                    mixR[i] += (tri * finalVolR) >> 16;
+                    ph += inc; currentEnv += envStep;
+                }
+#endif
+                break;
+            default: break;
+        }
+    }
+    vo->phase = ph;
+}
+
+static FORCE_INLINE IRAM_ATTR void renderBlockNoiseStereo(Voice* __restrict__ vo, int32_t* __restrict__ mixL, int32_t* __restrict__ mixR, int samples, int32_t startEnv, int32_t envStep) {
+    int32_t  currentEnv    = startEnv;
+    int32_t  volBase       = ((uint32_t)vo->vol * vo->trmModGain) >> 8;
+    int32_t  volBaseL      = (volBase * vo->panGainL) >> 15;
+    int32_t  volBaseR      = (volBase * vo->panGainR) >> 15;
+    uint32_t rng           = vo->rngState;
+    uint32_t ph            = vo->phase;
+    uint32_t inc           = (vo->phaseInc + vo->vibOffset) << 4;
+    int16_t  currentSample = vo->noiseSample;
+
+    if (envStep == 0) {
+        int32_t envSafe   = currentEnv >> 14;
+        envSafe          &= ~(envSafe >> 31);
+        int32_t finalVolL = (int32_t)((envSafe * volBaseL) >> 14);
+        int32_t finalVolR = (int32_t)((envSafe * volBaseR) >> 14);
+        if ((finalVolL | finalVolR) == 0) { vo->phase += inc * samples; return; }
+
+        for (int i = 0; i < samples; i++) {
+            uint32_t nextPh = ph + inc;
+            if (UNLIKELY(nextPh < ph)) { rng = (rng * 1664525) + 1013904223; currentSample = (int16_t)(rng >> 16); }
+            ph = nextPh;
+            mixL[i] += (currentSample * finalVolL) >> 16;
+            mixR[i] += (currentSample * finalVolR) >> 16;
+        }
+    } else {
+        for (int i = 0; i < samples; i++) {
+            uint32_t nextPh = ph + inc;
+            if (UNLIKELY(nextPh < ph)) { rng = (rng * 1664525) + 1013904223; currentSample = (int16_t)(rng >> 16); }
+            ph = nextPh;
+            int32_t envSafe   = currentEnv >> 14;
+            envSafe          &= ~(envSafe >> 31);
+            int32_t finalVolL = (int32_t)((envSafe * volBaseL) >> 14);
+            int32_t finalVolR = (int32_t)((envSafe * volBaseR) >> 14);
+            mixL[i]    += (currentSample * finalVolL) >> 16;
+            mixR[i]    += (currentSample * finalVolR) >> 16;
+            currentEnv += envStep;
+        }
+    }
+    vo->rngState    = rng;
+    vo->phase       = ph;
+    vo->noiseSample = currentSample;
+}
+#endif
 
 // Classic ADSR Envelope Logic (Optimized for Sub-Block Precision)
 static FORCE_INLINE IRAM_ATTR int updateAdsrBlock(Voice* vo, int maxSamples, int32_t& startEnv, int32_t& envStep) {

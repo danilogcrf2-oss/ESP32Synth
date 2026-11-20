@@ -14,6 +14,9 @@ void ESP32Synth::noteOn(uint16_t voice, uint32_t freqCentiHz, uint16_t volume) {
     vo->sampleFinished  = false;
     vo->slideFreqActive = false;
     vo->slideVolActive  = false;
+    #if SYNTH_STEREO
+    vo->slidePanActive  = false;
+    #endif
     if (!vo->smoothEnv) vo->currEnvVal = 0; // Force immediate envelope reset if not smoothing!
 
     // Calculate phase increment
@@ -132,6 +135,9 @@ void ESP32Synth::noteOn(uint16_t voice, uint32_t freqCentiHz, uint16_t volume) {
             vo->envState   = ENV_ATTACK;
         }
     }
+    #if SYNTH_STEREO
+    updateVoicePanGains(vo, vo->pan);
+    #endif
 }
 
 void ESP32Synth::noteOff(uint16_t voice) {
@@ -194,7 +200,12 @@ void ESP32Synth::setVolume(uint16_t voice, uint16_t volume) {
 }
 
 void ESP32Synth::setWave(uint16_t voice, WaveType type) {
-    if (voice < MAX_VOICES) voices[voice].type = type;
+    if (voice < MAX_VOICES) {
+        voices[voice].type = type;
+#if SYNTH_STEREO
+        updateVoicePanGains(&voices[voice], voices[voice].pan);
+#endif
+    }
 }
 
 void ESP32Synth::setPulseWidthBitDepth(uint8_t bits) {
@@ -213,7 +224,11 @@ void ESP32Synth::setPulseWidth(uint16_t voice, uint32_t width) {
 void ESP32Synth::setCustomWave(uint16_t voice, SynthCustomWaveCallback cb) {
     if (voice < MAX_VOICES) {
         voices[voice].customWaveFunc = cb;
-        voices[voice].type = WAVE_CUSTOM; // Automatically forces the wave type!
+        voices[voice].type = WAVE_CUSTOM;
+#if SYNTH_STEREO
+        voices[voice].customStereoWaveFunc = nullptr;
+        updateVoicePanGains(&voices[voice], voices[voice].pan);
+#endif
     }
 }
 
@@ -389,6 +404,9 @@ void ESP32Synth::setInstrument(uint16_t voice, Instrument* inst) {
     voices[voice].currEnvVal = (inst == nullptr) ? 0 : ENV_MAX;
     voices[voice].envState   = (inst == nullptr) ? ENV_IDLE : ENV_ATTACK;
     voices[voice].smoothEnv  = (inst != nullptr); // Auto-enable smooth envelope for Tracker Instruments
+#if SYNTH_STEREO
+    updateVoicePanGains(&voices[voice], voices[voice].pan);
+#endif
 }
 
 void ESP32Synth::setInstrument(uint16_t voice, Instrument_Sample* inst) {
@@ -407,14 +425,15 @@ void ESP32Synth::detachInstrument(uint16_t voice, WaveType newWaveType) {
 
 // --- Sample Control ---
 
-bool ESP32Synth::registerSample(uint16_t sampleId, const void* data, uint32_t length, uint32_t sampleRate, uint32_t rootFreqCentiHz, BitDepth depth) {
+bool ESP32Synth::registerSample(uint16_t sampleId, const void* data, uint32_t length, uint32_t sampleRate, uint32_t rootFreqCentiHz, BitDepth depth, uint8_t numChannels) {
     if (sampleId >= MAX_SAMPLES || data == nullptr) return false;
 
-    registeredSamples[sampleId].data             = data;
-    registeredSamples[sampleId].length           = length;
-    registeredSamples[sampleId].sampleRate       = sampleRate;
-    registeredSamples[sampleId].rootFreqCentiHz  = rootFreqCentiHz;
-    registeredSamples[sampleId].depth            = depth;
+    registeredSamples[sampleId].data            = data;
+    registeredSamples[sampleId].length          = length;
+    registeredSamples[sampleId].sampleRate      = sampleRate;
+    registeredSamples[sampleId].rootFreqCentiHz = rootFreqCentiHz;
+    registeredSamples[sampleId].depth           = depth;
+    registeredSamples[sampleId].numChannels     = (numChannels == 2) ? 2 : 1;
     return true;
 }
 
@@ -426,7 +445,10 @@ void ESP32Synth::setSample(uint16_t voice, uint16_t sampleId, LoopMode loopMode,
     v->sampleLoopMode  = loopMode;
     v->sampleLoopStart = loopStart;
     v->sampleLoopEnd   = loopEnd;
-    v->instSample      = nullptr; // Detach sample instrument if any
+    v->instSample      = nullptr;
+#if SYNTH_STEREO
+    updateVoicePanGains(v, v->pan);
+#endif
 }
 
 void ESP32Synth::setSampleLoop(uint16_t voice, LoopMode loopMode, uint32_t loopStart, uint32_t loopEnd) {
@@ -511,3 +533,231 @@ void ESP32Synth::unArmPWM(uint16_t rampMs, bool wait) {
 bool ESP32Synth::isPWMArmed() {
     return (pwm_state == PWM_STATE_ACTIVE || pwm_state == PWM_STATE_RAMP_UP);
 }
+
+// --- Stereo & Panning Engine ---
+#if SYNTH_STEREO
+void ESP32Synth::computePanLawGains(int32_t pan16, bool stereoSource, uint16_t& outL, uint16_t& outR) {
+    if (pan16 <= -32767) { outL = 32768; outR = 0; return; }
+    if (pan16 >=  32767) { outL = 0;     outR = 32768; return; }
+
+    if (stereoSource || _panLaw == PAN_LAW_BALANCE) {
+        if (pan16 == 0) {
+            outL = 32768;
+            outR = 32768;
+        } else if (pan16 < 0) {
+            outL = 32768;
+            outR = (uint16_t)(((int64_t)(32767 + pan16) * 32768) / 32767);
+        } else {
+            outL = (uint16_t)(((int64_t)(32767 - pan16) * 32768) / 32767);
+            outR = 32768;
+        }
+    } else if (_panLaw == PAN_LAW_LINEAR) {
+        uint16_t r = (uint16_t)(((int64_t)(pan16 + 32767) * 32768) / 65534);
+        outR = r;
+        outL = 32768 - r;
+    } else {
+        if (pan16 == 0) {
+            outL = 23170;
+            outR = 23170;
+            return;
+        }
+        uint32_t t    = (uint32_t)(pan16 + 32767);
+        uint32_t posR = (uint32_t)(((uint64_t)t * (1024UL << 16)) / 65534UL);
+        uint32_t posL = (1024UL << 16) - posR;
+
+        auto lutQuarter = [](uint32_t pos) -> uint16_t {
+            uint32_t idx = pos >> 16;
+            if (idx >= 1024) return 32768;
+            int32_t s0 = sineLUT[idx];
+            int32_t s1 = (idx + 1 == 1024) ? 32768 : sineLUT[idx + 1];
+            int32_t v  = s0 + (int32_t)(((int64_t)(s1 - s0) * (pos & 0xFFFF)) >> 16);
+            return (v >= 32767) ? 32768 : (uint16_t)v;
+        };
+
+        outL = lutQuarter(posL);
+        outR = lutQuarter(posR);
+    }
+}
+
+void ESP32Synth::updateVoicePanGains(Voice* vo, int32_t effPan16) {
+    if (effPan16 >  32767) effPan16 =  32767;
+    if (effPan16 < -32767) effPan16 = -32767;
+
+    bool isStereoSrc = false;
+    bool forceStereoPath = false;
+    if (!vo->inst) {
+        if (vo->type == WAVE_STREAM && vo->streamTrackId >= 0) {
+            isStereoSrc = (streams[vo->streamTrackId].numChannels == 2);
+            forceStereoPath = true;
+        } else if (vo->type == WAVE_SAMPLE && vo->curSampleId < MAX_SAMPLES) {
+            isStereoSrc = (registeredSamples[vo->curSampleId].numChannels == 2);
+        } else if (vo->type == WAVE_CUSTOM && vo->customStereoWaveFunc != nullptr) {
+            isStereoSrc = true;
+        }
+    }
+
+    computePanLawGains(effPan16, isStereoSrc, vo->panGainL, vo->panGainR);
+
+    if (isStereoSrc || forceStereoPath) {
+        vo->panState = PAN_STEREO;
+    } else if (effPan16 == 0) {
+        vo->panState = PAN_CENTER;
+    } else if (vo->panGainR == 0) {
+        vo->panState = PAN_HARD_L;
+    } else if (vo->panGainL == 0) {
+        vo->panState = PAN_HARD_R;
+    } else {
+        vo->panState = PAN_STEREO;
+    }
+}
+
+void ESP32Synth::setPanLaw(PanLaw law) {
+    _panLaw = law;
+    _centerGainQ15 = (law == PAN_LAW_CONSTANT_POWER) ? 23170 : (law == PAN_LAW_LINEAR) ? 16384 : 32768;
+    for (int i = 0; i < MAX_VOICES; i++) {
+        updateVoicePanGains(&voices[i], voices[i].pan);
+    }
+}
+
+void ESP32Synth::setPanBitDepth(uint8_t bits) {
+    if (bits < 2)  bits = 2;
+    if (bits > 16) bits = 16;
+    _panShift = bits;
+}
+
+void ESP32Synth::setPan(uint16_t voice, int32_t pan) {
+    if (voice >= MAX_VOICES) return;
+    int32_t maxVal = (1L << (_panShift - 1)) - 1;
+    if (pan >  maxVal) pan =  maxVal;
+    if (pan < -maxVal) pan = -maxVal;
+    int32_t pan16 = (pan >= 0) ? ((pan * 32767) / maxVal) : -((-pan * 32767) / maxVal);
+    voices[voice].pan = (int16_t)pan16;
+    updateVoicePanGains(&voices[voice], pan16);
+}
+
+void ESP32Synth::setPanMIDI(uint16_t voice, uint8_t midiPan) {
+    if (voice >= MAX_VOICES) return;
+    if (midiPan > 127) midiPan = 127;
+    int32_t offset = (int32_t)midiPan - 64;
+    int32_t pan16  = (offset <= 0) ? ((offset * 32767) / 64) : ((offset * 32767) / 63);
+    voices[voice].pan = (int16_t)pan16;
+    updateVoicePanGains(&voices[voice], pan16);
+}
+
+void ESP32Synth::slidePan(uint16_t voice, int32_t startPan, int32_t endPan, uint32_t durationMs) {
+    if (voice >= MAX_VOICES) return;
+    Voice* v = &voices[voice];
+
+    int32_t maxVal = (1L << (_panShift - 1)) - 1;
+    if (startPan >  maxVal) startPan =  maxVal;
+    if (startPan < -maxVal) startPan = -maxVal;
+    if (endPan   >  maxVal) endPan   =  maxVal;
+    if (endPan   < -maxVal) endPan   = -maxVal;
+
+    int32_t start16 = (startPan >= 0) ? ((startPan * 32767) / maxVal) : -((-startPan * 32767) / maxVal);
+    int32_t end16   = (endPan   >= 0) ? ((endPan   * 32767) / maxVal) : -((-endPan   * 32767) / maxVal);
+
+    uint32_t ticks = (durationMs == 0) ? 0 : ((durationMs * controlRateHz + 999) / 1000);
+    if (ticks == 0) {
+        v->pan = (int16_t)end16;
+        v->slidePanActive = false;
+        updateVoicePanGains(v, end16);
+        return;
+    }
+
+    v->pan                    = (int16_t)start16;
+    v->slidePanCurr           = start16 << 15;
+    v->slidePanTarget         = (int16_t)end16;
+    v->slidePanInc            = ((end16 - start16) << 15) / (int32_t)ticks;
+    v->slidePanTicksRemaining = ticks;
+    v->slidePanActive         = true;
+    updateVoicePanGains(v, start16);
+}
+
+void ESP32Synth::slidePanTo(uint16_t voice, int32_t endPan, uint32_t durationMs) {
+    if (voice >= MAX_VOICES) return;
+    Voice* v = &voices[voice];
+
+    int32_t maxVal = (1L << (_panShift - 1)) - 1;
+    if (endPan >  maxVal) endPan =  maxVal;
+    if (endPan < -maxVal) endPan = -maxVal;
+    int32_t end16 = (endPan >= 0) ? ((endPan * 32767) / maxVal) : -((-endPan * 32767) / maxVal);
+
+    uint32_t ticks = (durationMs == 0) ? 0 : ((durationMs * controlRateHz + 999) / 1000);
+    if (ticks == 0) {
+        v->pan = (int16_t)end16;
+        v->slidePanActive = false;
+        updateVoicePanGains(v, end16);
+        return;
+    }
+
+    int32_t start16 = v->pan;
+    v->slidePanCurr           = start16 << 15;
+    v->slidePanTarget         = (int16_t)end16;
+    v->slidePanInc            = ((end16 - start16) << 15) / (int32_t)ticks;
+    v->slidePanTicksRemaining = ticks;
+    v->slidePanActive         = true;
+}
+
+void ESP32Synth::setAutoPan(uint16_t voice, uint32_t rateCentiHz, uint16_t depth) {
+    if (voice >= MAX_VOICES) return;
+    int32_t maxVal = (1L << (_panShift - 1)) - 1;
+    uint32_t d16   = ((uint32_t)depth * 32767UL) / (uint32_t)maxVal;
+    if (d16 > 32767) d16 = 32767;
+    voices[voice].panLfoRateInc = (uint32_t)(((uint64_t)rateCentiHz * 4294967296ULL) / ((uint64_t)_sampleRate * 100ULL));
+    voices[voice].panLfoDepth   = (uint16_t)d16;
+    if (d16 == 0) updateVoicePanGains(&voices[voice], voices[voice].pan);
+}
+
+void ESP32Synth::setAutoPanPhase(uint16_t voice, uint16_t phaseDegrees) {
+    if (voice < MAX_VOICES) {
+        voices[voice].panLfoPhase = (uint32_t)(phaseDegrees % 360) * 11930465UL;
+    }
+}
+
+void ESP32Synth::setStereoWidth(uint16_t voice, uint16_t width) {
+    if (voice < MAX_VOICES) {
+        voices[voice].stereoWidth = (width > 512) ? 512 : width;
+    }
+}
+
+void ESP32Synth::setCustomStereoWave(uint16_t voice, SynthCustomStereoWaveCallback cb) {
+    if (voice < MAX_VOICES) {
+        voices[voice].customStereoWaveFunc = cb;
+        voices[voice].customWaveFunc       = nullptr;
+        voices[voice].type                 = WAVE_CUSTOM;
+        updateVoicePanGains(&voices[voice], voices[voice].pan);
+    }
+}
+
+void ESP32Synth::setBusPan(uint8_t busId, int32_t pan) {
+    if (busId >= MAX_BUSES) return;
+    int32_t maxVal = (1L << (_panShift - 1)) - 1;
+    if (pan >  maxVal) pan =  maxVal;
+    if (pan < -maxVal) pan = -maxVal;
+    int32_t pan16 = (pan >= 0) ? ((pan * 32767) / maxVal) : -((-pan * 32767) / maxVal);
+    busesConfig[busId].pan = (int16_t)pan16;
+    computePanLawGains(pan16, true, busesConfig[busId].panGainL, busesConfig[busId].panGainR);
+    busesConfig[busId].active = true;
+}
+
+void ESP32Synth::setBusWidth(uint8_t busId, uint16_t width) {
+    if (busId < MAX_BUSES) {
+        busesConfig[busId].stereoWidth = (width > 512) ? 512 : width;
+        busesConfig[busId].active = true;
+    }
+}
+
+void ESP32Synth::setMasterPan(int32_t pan) {
+    int32_t maxVal = (1L << (_panShift - 1)) - 1;
+    if (pan >  maxVal) pan =  maxVal;
+    if (pan < -maxVal) pan = -maxVal;
+    int32_t pan16 = (pan >= 0) ? ((pan * 32767) / maxVal) : -((-pan * 32767) / maxVal);
+    _masterPan = (int16_t)pan16;
+    computePanLawGains(pan16, true, _masterPanGainL, _masterPanGainR);
+}
+
+void ESP32Synth::setMasterStereoWidth(uint16_t width) {
+    _masterWidth = (width > 512) ? 512 : width;
+}
+#endif

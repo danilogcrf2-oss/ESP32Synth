@@ -65,3 +65,30 @@ uint32_t ESP32Synth::getPhase(uint16_t voice) {
 uint32_t ESP32Synth::getPulseWidth(uint16_t voice) {
     return (voice < MAX_VOICES) ? (voices[voice].pulseWidth >> _pwShift) : 0;
 }
+
+#if SYNTH_STEREO
+PanLaw ESP32Synth::getPanLaw() {
+    return _panLaw;
+}
+
+int32_t ESP32Synth::getPan(uint16_t voice) {
+    if (voice >= MAX_VOICES) return 0;
+    int32_t maxVal = (1L << (_panShift - 1)) - 1;
+    int32_t pan16  = voices[voice].pan;
+    return (pan16 >= 0) ? ((pan16 * maxVal + 16383) / 32767) : -((-pan16 * maxVal + 16383) / 32767);
+}
+
+uint16_t ESP32Synth::getStereoWidth(uint16_t voice) {
+    return (voice < MAX_VOICES) ? voices[voice].stereoWidth : 256;
+}
+
+int32_t ESP32Synth::getMasterPan() {
+    int32_t maxVal = (1L << (_panShift - 1)) - 1;
+    int32_t pan16  = _masterPan;
+    return (pan16 >= 0) ? ((pan16 * maxVal + 16383) / 32767) : -((-pan16 * maxVal + 16383) / 32767);
+}
+
+uint16_t ESP32Synth::getMasterStereoWidth() {
+    return _masterWidth;
+}
+#endif

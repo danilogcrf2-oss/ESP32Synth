@@ -52,6 +52,15 @@ int8_t ESP32Synth::setupStream(uint16_t voice, const char* path, uint32_t rootFr
 
     StreamTrack* trk = &streams[streamId];
     memset(trk, 0, sizeof(StreamTrack));
+    #if SYNTH_STEREO
+    trk->buffer = (StereoSample*)heap_caps_calloc(STREAM_BUF_SAMPLES, sizeof(StereoSample), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+#else
+    trk->buffer = (int16_t*)heap_caps_calloc(STREAM_BUF_SAMPLES, sizeof(int16_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+#endif
+    if (!trk->buffer) {
+        SYNTH_FILE_CLOSE(file);
+        return -1;
+    }
 
     trk->file           = file;
     trk->sampleRate     = sRate;
@@ -74,6 +83,12 @@ int8_t ESP32Synth::setupStream(uint16_t voice, const char* path, uint32_t rootFr
     Voice* vo           = &voices[voice];
     vo->type            = WAVE_STREAM;
     vo->streamTrackId   = streamId;
+    vo->inst            = nullptr;
+    vo->instSample      = nullptr;
+    vo->freqVal         = 0;
+    vo->streamFracAccum = 0;
+    vo->slideFreqActive = false;
+    vo->slideVolActive  = false;
     vo->active          = false;
     vo->envState        = ENV_IDLE;
     vo->currEnvVal      = 0;
@@ -106,8 +121,9 @@ int8_t ESP32Synth::playStream(uint16_t voice, const char* path, uint16_t volume,
         timeout--;
     }
 
-    Voice* vo = &voices[voice];
-    vo->vol   = volume << _volShift;
+    Voice* vo      = &voices[voice];
+    uint32_t vCalc = (uint32_t)volume << _volShift;
+    vo->vol        = (vCalc > 65535) ? 65535 : (uint16_t)vCalc;
 
     uint32_t rFreq = (rootFreqCentiHz > 0) ? rootFreqCentiHz : ((trk->sampleRate > 0) ? trk->sampleRate * 100 : 4800000);
     if (vo->freqVal == 0) vo->freqVal = rFreq;
@@ -124,6 +140,10 @@ int8_t ESP32Synth::playStream(uint16_t voice, const char* path, uint16_t volume,
         vo->envState   = ENV_ATTACK;
     }
     vo->active = true;
+
+#if SYNTH_STEREO
+    updateVoicePanGains(vo, vo->pan);
+#endif
 
     return streamId;
 }
@@ -144,13 +164,16 @@ void ESP32Synth::stopStream(uint16_t voice) {
     if (voice < MAX_VOICES && voices[voice].streamTrackId >= 0) {
         StreamTrack* trk = &streams[voices[voice].streamTrackId];
 
+        voices[voice].active = false;
+        voices[voice].streamTrackId = -1;
         trk->playing = false;
         trk->active  = false;
+
+        vTaskDelay(pdMS_TO_TICKS(15));
 
         #if ENABLE_MP3
         if (trk->isMP3) {
             if (trk->mp3Decoder) {
-                vTaskDelay(pdMS_TO_TICKS(2));
                 MP3FreeDecoder((HMP3Decoder)trk->mp3Decoder);
                 trk->mp3Decoder = nullptr;
             }
@@ -161,8 +184,12 @@ void ESP32Synth::stopStream(uint16_t voice) {
         }
         #endif
 
+        if (trk->buffer) {
+            heap_caps_free(trk->buffer);
+            trk->buffer = nullptr;
+        }
+
         SYNTH_FILE_CLOSE(trk->file);
-        voices[voice].streamTrackId = -1;
     }
 }
 
@@ -220,11 +247,12 @@ bool ESP32Synth::isStreamPlaying(uint16_t voice) {
 }
 
 #ifdef ARDUINO
-bool ESP32Synth::startRecording(fs::FS &fs, const char* path) {
+bool ESP32Synth::startRecording(fs::FS &fs, const char* path, bool stereo) {
 #else
-bool ESP32Synth::startRecording(const char* path) {
+bool ESP32Synth::startRecording(const char* path, bool stereo) {
 #endif
     if (_isRecording) return false;
+    _recStereo = (SYNTH_STEREO != 0) ? stereo : false;
 
     if (!_recBuffer) {
         _recBuffer = (int16_t*)heap_caps_malloc(RECORD_BUF_SAMPLES * sizeof(int16_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
@@ -318,14 +346,16 @@ void ESP32Synth::sdWriterTask(void* param) {
             synth->_recordedDataSize += bytesToWrite;
         } else {
             if (!synth->_isRecording) break;
-            vTaskDelay(pdMS_TO_TICKS(10));
+            vTaskDelay(pdMS_TO_TICKS(2));
         }
     }
 
-    uint32_t sRate = synth->_sampleRate;
+    uint32_t sRate    = synth->_sampleRate;
+    uint16_t ch       = synth->_recStereo ? 2 : 1;
+    uint16_t blkAlign = ch * 2;
     uint32_t dataSize = synth->_recordedDataSize;
     uint32_t fileSize = dataSize + 36;
-    uint32_t byteRate = sRate * 2;
+    uint32_t byteRate = sRate * blkAlign;
 
     uint8_t head[44];
     head[0] = 'R'; head[1] = 'I'; head[2] = 'F'; head[3] = 'F';
@@ -334,10 +364,10 @@ void ESP32Synth::sdWriterTask(void* param) {
     head[12] = 'f'; head[13] = 'm'; head[14] = 't'; head[15] = ' ';
     head[16] = 16; head[17] = 0; head[18] = 0; head[19] = 0;
     head[20] = 1;  head[21] = 0;
-    head[22] = 1;  head[23] = 0;
+    head[22] = (uint8_t)ch; head[23] = 0;
     head[24] = (uint8_t)(sRate); head[25] = (uint8_t)(sRate >> 8); head[26] = (uint8_t)(sRate >> 16); head[27] = (uint8_t)(sRate >> 24);
     head[28] = (uint8_t)(byteRate); head[29] = (uint8_t)(byteRate >> 8); head[30] = (uint8_t)(byteRate >> 16); head[31] = (uint8_t)(byteRate >> 24);
-    head[32] = 2;  head[33] = 0;
+    head[32] = (uint8_t)blkAlign; head[33] = 0;
     head[34] = 16; head[35] = 0;
     head[36] = 'd'; head[37] = 'a'; head[38] = 't'; head[39] = 'a';
     head[40] = (uint8_t)(dataSize); head[41] = (uint8_t)(dataSize >> 8); head[42] = (uint8_t)(dataSize >> 16); head[43] = (uint8_t)(dataSize >> 24);
@@ -456,6 +486,15 @@ int8_t ESP32Synth::playMP3StreamFromFlash(uint16_t voice, const uint8_t* mp3Data
 
     StreamTrack* trk = &streams[streamId];
     memset(trk, 0, sizeof(StreamTrack));
+    #if SYNTH_STEREO
+    trk->buffer = (StereoSample*)heap_caps_calloc(STREAM_BUF_SAMPLES, sizeof(StereoSample), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+#else
+    trk->buffer = (int16_t*)heap_caps_calloc(STREAM_BUF_SAMPLES, sizeof(int16_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+#endif
+    if (!trk->buffer) {
+        MP3FreeDecoder(decoder);
+        return -1;
+    }
 
     trk->sampleRate     = sRate;
     trk->numChannels    = chans;
@@ -479,10 +518,16 @@ int8_t ESP32Synth::playMP3StreamFromFlash(uint16_t voice, const uint8_t* mp3Data
         timeout--;
     }
 
-    Voice* vo = &voices[voice];
-    vo->type          = WAVE_STREAM;
-    vo->streamTrackId = streamId;
-    vo->vol           = volume << _volShift;
+    Voice* vo           = &voices[voice];
+    vo->type            = WAVE_STREAM;
+    vo->streamTrackId   = streamId;
+    vo->inst            = nullptr;
+    vo->instSample      = nullptr;
+    vo->streamFracAccum = 0;
+    vo->slideFreqActive = false;
+    vo->slideVolActive  = false;
+    uint32_t vCalc      = (uint32_t)volume << _volShift;
+    vo->vol             = (vCalc > 65535) ? 65535 : (uint16_t)vCalc;
     vo->freqVal       = (rootFreqCentiHz > 0) ? rootFreqCentiHz : 4800000;
 
     if (trk->rootFreqCentiHz > 0) {
@@ -500,6 +545,10 @@ int8_t ESP32Synth::playMP3StreamFromFlash(uint16_t voice, const uint8_t* mp3Data
         vo->envState   = ENV_ATTACK;
     }
     vo->active = true;
+
+#if SYNTH_STEREO
+    updateVoicePanGains(vo, vo->pan);
+#endif
 
     return streamId;
 }
@@ -644,6 +693,18 @@ int8_t ESP32Synth::setupMP3Stream(uint16_t voice, const char* path, uint32_t roo
 
     StreamTrack* trk = &streams[streamId];
     memset(trk, 0, sizeof(StreamTrack));
+    #if SYNTH_STEREO
+    trk->buffer = (StereoSample*)heap_caps_calloc(STREAM_BUF_SAMPLES, sizeof(StereoSample), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+#else
+    trk->buffer = (int16_t*)heap_caps_calloc(STREAM_BUF_SAMPLES, sizeof(int16_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+#endif
+    if (!trk->buffer) {
+        heap_caps_free(inBuf);
+        MP3FreeDecoder(decoder);
+        SYNTH_FILE_CLOSE(file);
+        return -1;
+    }
+    
 
     trk->file           = file;
     trk->sampleRate     = sRate;
@@ -668,6 +729,12 @@ int8_t ESP32Synth::setupMP3Stream(uint16_t voice, const char* path, uint32_t roo
     Voice* vo           = &voices[voice];
     vo->type            = WAVE_STREAM;
     vo->streamTrackId   = streamId;
+    vo->inst            = nullptr;
+    vo->instSample      = nullptr;
+    vo->freqVal         = 0;
+    vo->streamFracAccum = 0;
+    vo->slideFreqActive = false;
+    vo->slideVolActive  = false;
     vo->active          = false;
     vo->envState        = ENV_IDLE;
     vo->currEnvVal      = 0;
@@ -697,8 +764,9 @@ int8_t ESP32Synth::playMP3Stream(uint16_t voice, const char* path, uint16_t volu
         timeout--;
     }
 
-    Voice* vo   = &voices[voice];
-    vo->vol     = volume << _volShift;
+    Voice* vo      = &voices[voice];
+    uint32_t vCalc = (uint32_t)volume << _volShift;
+    vo->vol        = (vCalc > 65535) ? 65535 : (uint16_t)vCalc;
     vo->freqVal = (rootFreqCentiHz > 0) ? rootFreqCentiHz : 4800000;
 
     if (trk->rootFreqCentiHz > 0) {
@@ -716,7 +784,9 @@ int8_t ESP32Synth::playMP3Stream(uint16_t voice, const char* path, uint16_t volu
         vo->envState   = ENV_ATTACK;
     }
     vo->active = true;
-
+    #if SYNTH_STEREO
+    updateVoicePanGains(vo, vo->pan);
+    #endif
     return streamId;
 }
 #endif

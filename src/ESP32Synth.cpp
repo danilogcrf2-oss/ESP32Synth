@@ -45,6 +45,8 @@ SampleData registeredSamples[MAX_SAMPLES];
 #include "ESP32Synth_Core_Getters.hpp"
 #include "ESP32Synth_Renders.hpp"
 #include "ESP32Synth_SDStream.hpp"
+#include "ESP32Synth_FX.hpp"
+#include "ESP32Synth_LFO.hpp"
 // -------------------------------
 
 // --- Constructor & Destructor ---
@@ -52,11 +54,20 @@ SampleData registeredSamples[MAX_SAMPLES];
 ESP32Synth::ESP32Synth() {
     _sampleRate = 48000;
 
+    static bool lutInit = false;
+    if (!lutInit) {
+        for (int i = 0; i < SINE_LUT_SIZE; i++) {
+            sineLUT[i] = (int16_t)(sin(i * 2.0 * PI / (double)SINE_LUT_SIZE) * 32767.0);
+        }
+        sineLUT[SINE_LUT_SIZE] = sineLUT[0];
+        lutInit = true;
+    }
+
     for (int i = 0; i < MAX_VOICES; i++) {
         voices[i] = {};
         voices[i].type = WAVE_SINE;
         voices[i].envState = ENV_IDLE;
-        voices[i].rngState = 12345 + (i * 999); // Unique RNG seed per voice
+        voices[i].rngState = 12345 + (i * 999);
         voices[i].rateAttack = ENV_MAX;
         voices[i].rateDecay = ENV_MAX;
         voices[i].levelSustain = ENV_MAX;
@@ -64,10 +75,18 @@ ESP32Synth::ESP32Synth() {
         voices[i].pulseWidth = 0x80000000;
         voices[i].streamTrackId = -1;
         voices[i].customWaveFunc = nullptr;
-        voices[i].smoothEnv = false; // Default to false for standard notes. Set to true dynamically or via instruments.
+        voices[i].smoothEnv = false;
         voices[i].targetBus = 0;
         voices[i].trmModGain = 256;
         memset(voices[i].cp, 0, sizeof(voices[i].cp));
+#if SYNTH_STEREO
+        voices[i].pan = 0;
+        voices[i].panGainL = _centerGainQ15;
+        voices[i].panGainR = _centerGainQ15;
+        voices[i].stereoWidth = 256;
+        voices[i].panState = PAN_CENTER;
+        voices[i].customStereoWaveFunc = nullptr;
+#endif
     }
 
     for (int i = 0; i < MAX_STREAMS; i++) {
@@ -80,6 +99,7 @@ ESP32Synth::ESP32Synth() {
         #if ENABLE_MP3
         streams[i].isMP3 = false;
         #endif
+        streams[i].buffer = nullptr;
     }
 
     for (uint16_t i = 0; i < MAX_WAVETABLES; i++) {
@@ -90,31 +110,51 @@ ESP32Synth::ESP32Synth() {
     for (int i = 0; i < MAX_BUSES; i++) {
         busesConfig[i] = {};
         busesConfig[i].mixLevel = 255;
+#if SYNTH_STEREO
+        busesConfig[i].pan = 0;
+        busesConfig[i].panGainL = 32768;
+        busesConfig[i].panGainR = 32768;
+        busesConfig[i].stereoWidth = 256;
+#endif
     }
     
+    for (int i = 0; i < MAX_LFOS; i++) {
+        lfos[i] = {};
+        lfos[i].effAmpQ8    = 256;
+        lfos[i].fadeGainQ15 = 32768;
+        lfos[i].duty        = 128;
+        lfos[i].rngState    = 0x6D2B79F5UL + ((uint32_t)i * 0x9E3779B9UL);
+    }
+    for (int i = 0; i < MAX_LFO_ROUTES; i++) {
+        lfoRoutes[i] = {};
+    }
+
     controlRateHz = 100;
     memset(dp, 0, sizeof(dp));
 }
 
 ESP32Synth::~ESP32Synth() {
     end();
+    freeAllBusFX();
 }
 
 // --- Other Methods ---
 
 void ESP32Synth::setSampleRate(uint32_t rate) {
-    // WARNING: ESP32Synth was mathematically designed, highly optimized,
-    // and exhaustively tested at 48kHz. Changing this may cause jitter or aliasing.
-    // Change at your own risk.
     if (rate > 0 && rate != _sampleRate) {
         _sampleRate = rate;
         _customSampleRate = true;
         controlIntervalSamples = (_sampleRate / controlRateHz) ? (_sampleRate / controlRateHz) : 1;
 
-        // Recalculates the phase motor step of all notes that are already playing!
         for (int v = 0; v < MAX_VOICES; v++) {
             if (voices[v].active) {
                 setFrequency(v, voices[v].freqVal);
+            }
+        }
+
+        for (int i = 0; i < MAX_LFOS; i++) {
+            if (lfos[i].active) {
+                setLFORate(i, lfos[i].baseRate);
             }
         }
     }
@@ -124,11 +164,13 @@ void ESP32Synth::setControlRateHz(uint16_t hz) {
     if (hz > 0) {
         controlRateHz = hz;
         controlIntervalSamples = (_sampleRate / controlRateHz) ? (_sampleRate / controlRateHz) : 1;
+        for (int i = 0; i < MAX_LFOS; i++) {
+            if (lfos[i].active) lfoRefreshTiming(&lfos[i], controlRateHz);
+        }
     }
 }
 
 void ESP32Synth::setMasterBitcrush(uint8_t bits) {
-    // Limits between 0 (disabled) and 32 bits
     if (bits > 32) bits = 32;
     _bitcrush = bits;
 }
@@ -136,7 +178,7 @@ void ESP32Synth::setMasterBitcrush(uint8_t bits) {
 void ESP32Synth::setVolDepthBase(uint8_t bits) {
     if (bits < 1) bits = 1;
     if (bits > 16) bits = 16;
-    _volShift = 16 - bits; // Automatically calculates the Shift required to achieve 16-bit internally.
+    _volShift = 16 - bits;
 }
 
 void ESP32Synth::setMasterVolume(uint16_t volume) {
@@ -146,6 +188,9 @@ void ESP32Synth::setMasterVolume(uint16_t volume) {
 
 void ESP32Synth::setCustomDSP(SynthDSPCallback dspFunc) {
     _customDSP = dspFunc;
+#if SYNTH_STEREO
+    _customStereoDSP = nullptr;
+#endif
 }
 
 void ESP32Synth::setCustomControl(SynthControlCallback ctrlFunc) {
@@ -154,7 +199,22 @@ void ESP32Synth::setCustomControl(SynthControlCallback ctrlFunc) {
 
 void ESP32Synth::setCustomOutput(SynthCustomOutputCallback outFunc) {
     _customOutput = outFunc;
+#if SYNTH_STEREO
+    _customStereoOutput = nullptr;
+#endif
 }
+
+#if SYNTH_STEREO
+void ESP32Synth::setCustomStereoDSP(SynthStereoDSPCallback dspFunc) {
+    _customStereoDSP = dspFunc;
+    _customDSP = nullptr;
+}
+
+void ESP32Synth::setCustomStereoOutput(SynthCustomStereoOutputCallback outFunc) {
+    _customStereoOutput = outFunc;
+    _customOutput = nullptr;
+}
+#endif
 
 void ESP32Synth::setVoiceBus(uint16_t voice, uint8_t busId) {
     if (voice < MAX_VOICES && busId < MAX_BUSES) {
@@ -164,16 +224,54 @@ void ESP32Synth::setVoiceBus(uint16_t voice, uint8_t busId) {
 }
 
 void ESP32Synth::setBusFX(uint8_t busId, uint8_t slotId, FXType type, SynthCustomFXCallback cb) {
-    if (busId < MAX_BUSES && slotId < MAX_FX_PER_BUS) {
+    if (busId >= MAX_BUSES || slotId >= MAX_FX_PER_BUS) return;
+    if (type == FX_NONE) {
+        releaseFXNode(busId, slotId);
+        return;
+    }
+    if (type == FX_CUSTOM) {
+        releaseFXNode(busId, slotId);
         FXNode* fx = &busesConfig[busId].fxChain[slotId];
-        fx->type = type;
         fx->customFXFunc = cb;
-        fx->active = (type != FX_NONE);
+#if SYNTH_STEREO
+        fx->customStereoFXFunc = nullptr;
+#endif
         memset(fx->ep, 0, sizeof(fx->ep));
         memset(fx->es, 0, sizeof(fx->es));
+        fx->type = FX_CUSTOM;
+        __sync_synchronize();
+        fx->active = true;
+        busesConfig[busId].fxMask |= (uint8_t)(1U << slotId);
         busesConfig[busId].active = true;
+        return;
     }
+    initBuiltInFXNode(busId, slotId, type);
 }
+
+#if SYNTH_STEREO
+void ESP32Synth::setBusFX(uint8_t busId, uint8_t slotId, FXType type, SynthCustomStereoFXCallback cb) {
+    if (busId >= MAX_BUSES || slotId >= MAX_FX_PER_BUS) return;
+    if (type == FX_NONE) {
+        releaseFXNode(busId, slotId);
+        return;
+    }
+    if (type == FX_CUSTOM) {
+        releaseFXNode(busId, slotId);
+        FXNode* fx = &busesConfig[busId].fxChain[slotId];
+        fx->customStereoFXFunc = cb;
+        fx->customFXFunc = nullptr;
+        memset(fx->ep, 0, sizeof(fx->ep));
+        memset(fx->es, 0, sizeof(fx->es));
+        fx->type = FX_CUSTOM;
+        __sync_synchronize();
+        fx->active = true;
+        busesConfig[busId].fxMask |= (uint8_t)(1U << slotId);
+        busesConfig[busId].active = true;
+        return;
+    }
+    initBuiltInFXNode(busId, slotId, type);
+}
+#endif
 
 void ESP32Synth::setBusFXParam(uint8_t busId, uint8_t slotId, uint8_t paramId, int16_t value) {
     if (busId < MAX_BUSES && slotId < MAX_FX_PER_BUS && paramId < SYNTH_FX_PARAMS) {
@@ -228,28 +326,48 @@ void ESP32Synth::renderLoop() {
     }
 
     if (blockSamples < 16) blockSamples = 16;
-
-    // SIMD SHIELDING: Ensures the block is ALWAYS a multiple of 4.
     blockSamples = (blockSamples + 3) & ~3;
 
     int32_t* buf = (int32_t*)heap_caps_aligned_alloc(16, blockSamples * sizeof(int32_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     void* stereoBuf = heap_caps_aligned_alloc(16, blockSamples * 2 * sizeof(int32_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
 
-    // Multi-Bus Aligned Buffers Allocation
+#if SYNTH_STEREO
+    int32_t* busL[MAX_BUSES] = {nullptr};
+    int32_t* busR[MAX_BUSES] = {nullptr};
+    int32_t* busC[MAX_BUSES] = {nullptr};
+    int32_t* voiceScratch = (int32_t*)heap_caps_aligned_alloc(16, blockSamples * sizeof(int32_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    bool busAllocFailed = (!voiceScratch);
+    for (int i = 0; i < MAX_BUSES; i++) {
+        busL[i] = (int32_t*)heap_caps_aligned_alloc(16, blockSamples * sizeof(int32_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        busR[i] = (int32_t*)heap_caps_aligned_alloc(16, blockSamples * sizeof(int32_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        busC[i] = (int32_t*)heap_caps_aligned_alloc(16, blockSamples * sizeof(int32_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        if (!busL[i] || !busR[i] || !busC[i]) busAllocFailed = true;
+    }
+#else
     int32_t* busBuffers[MAX_BUSES] = {nullptr};
     bool busAllocFailed = false;
     for (int i = 0; i < MAX_BUSES; i++) {
         busBuffers[i] = (int32_t*)heap_caps_aligned_alloc(16, blockSamples * sizeof(int32_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
         if (!busBuffers[i]) busAllocFailed = true;
     }
+#endif
 
     if (!buf || !stereoBuf || busAllocFailed) {
         _running = false;
         if (buf) heap_caps_free(buf);
         if (stereoBuf) heap_caps_free(stereoBuf);
+#if SYNTH_STEREO
+        if (voiceScratch) heap_caps_free(voiceScratch);
+        for (int i = 0; i < MAX_BUSES; i++) {
+            if (busL[i]) heap_caps_free(busL[i]);
+            if (busR[i]) heap_caps_free(busR[i]);
+            if (busC[i]) heap_caps_free(busC[i]);
+        }
+#else
         for (int i = 0; i < MAX_BUSES; i++) {
             if (busBuffers[i]) heap_caps_free(busBuffers[i]);
         }
+#endif
         audioTaskHandle = NULL;
         vTaskDelete(NULL);
         return;
@@ -259,12 +377,16 @@ void ESP32Synth::renderLoop() {
 
     if (currentMode == SMODE_PWM) {
         pwm_block_samples = blockSamples;
-        pwm_ping_pong_buf[0] = (int16_t*)heap_caps_aligned_alloc(16, blockSamples * sizeof(int16_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-        pwm_ping_pong_buf[1] = (int16_t*)heap_caps_aligned_alloc(16, blockSamples * sizeof(int16_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        size_t pwmBytes = (size_t)blockSamples * sizeof(int16_t);
+#if SYNTH_STEREO
+        if (pwm_is_stereo) pwmBytes *= 2;
+#endif
+        pwm_ping_pong_buf[0] = (int16_t*)heap_caps_aligned_alloc(16, pwmBytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        pwm_ping_pong_buf[1] = (int16_t*)heap_caps_aligned_alloc(16, pwmBytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
         pwm_active_buf = 0;
         pwm_read_idx = 0;
-        if (pwm_ping_pong_buf[0]) memset(pwm_ping_pong_buf[0], 0, blockSamples * sizeof(int16_t));
-        if (pwm_ping_pong_buf[1]) memset(pwm_ping_pong_buf[1], 0, blockSamples * sizeof(int16_t));
+        if (pwm_ping_pong_buf[0]) memset(pwm_ping_pong_buf[0], 0, pwmBytes);
+        if (pwm_ping_pong_buf[1]) memset(pwm_ping_pong_buf[1], 0, pwmBytes);
         xSemaphoreGive(pwm_sema);
     }
 
@@ -274,13 +396,60 @@ void ESP32Synth::renderLoop() {
     while (_running) {
         uint32_t start_cycles = esp_cpu_get_cycle_count();
 
+#if SYNTH_STEREO
+        render(stereoBuf, busL, busR, busC, voiceScratch, blockSamples);
+
+        // --- SD RECORDING HOOK ---
+        if (UNLIKELY(_isRecording && _recBuffer)) {
+            uint32_t h = _recHead;
+            uint32_t space = (RECORD_BUF_SAMPLES + _recTail - h - 1) & RECORD_BUF_MASK;
+            uint32_t reqSamples = _recStereo ? (uint32_t)(blockSamples * 2) : (uint32_t)blockSamples;
+
+            if (space >= reqSamples) {
+                if (currentMode == SMODE_I2S && _i2sDepth == I2S_32BIT) {
+                    int32_t* s32 = (int32_t*)stereoBuf;
+                    if (_recStereo) {
+                        for (int i = 0; i < blockSamples * 2; i++) {
+                            _recBuffer[h] = (int16_t)(s32[i] >> 16);
+                            h = (h + 1) & RECORD_BUF_MASK;
+                        }
+                    } else {
+                        for (int i = 0; i < blockSamples; i++) {
+                            _recBuffer[h] = (int16_t)(((s32[i * 2] >> 16) + (s32[i * 2 + 1] >> 16)) >> 1);
+                            h = (h + 1) & RECORD_BUF_MASK;
+                        }
+                    }
+                    _recHead = h;
+                } else {
+                    int16_t* s16 = (int16_t*)stereoBuf;
+                    if (_recStereo) {
+                        uint32_t totalS = (uint32_t)blockSamples * 2;
+                        uint32_t tillEnd = RECORD_BUF_SAMPLES - h;
+                        if (totalS <= tillEnd) {
+                            memcpy((void*)&_recBuffer[h], s16, totalS * 2);
+                        } else {
+                            memcpy((void*)&_recBuffer[h], s16, tillEnd * 2);
+                            memcpy((void*)&_recBuffer[0], s16 + tillEnd, (totalS - tillEnd) * 2);
+                        }
+                        _recHead = (h + totalS) & RECORD_BUF_MASK;
+                    } else {
+                        for (int i = 0; i < blockSamples; i++) {
+                            _recBuffer[h] = (int16_t)(((int32_t)s16[i * 2] + (int32_t)s16[i * 2 + 1]) >> 1);
+                            h = (h + 1) & RECORD_BUF_MASK;
+                        }
+                        _recHead = h;
+                    }
+                }
+            }
+        }
+#else
         render(buf, busBuffers, blockSamples);
 
         // --- SD RECORDING HOOK ---
         if (UNLIKELY(_isRecording && _recBuffer)) {
             uint32_t h = _recHead;
             uint32_t space = (RECORD_BUF_SAMPLES + _recTail - h - 1) & RECORD_BUF_MASK;
-            
+
             if (space >= (uint32_t)blockSamples) {
                 if (currentMode == SMODE_I2S && _i2sDepth == I2S_32BIT) {
                     int32_t* b32 = (int32_t*)buf;
@@ -302,12 +471,99 @@ void ESP32Synth::renderLoop() {
                 }
             }
         }
+#endif
 
         uint32_t end_cycles = esp_cpu_get_cycle_count();
         uint32_t used_cycles = end_cycles - start_cycles;
-
         _dspLoad = ((float)used_cycles / (float)max_cycles_per_block) * 100.0f;
 
+#if SYNTH_STEREO
+        if (currentMode == SMODE_DAC) {
+#if defined(CONFIG_IDF_TARGET_ESP32) || defined(CONFIG_IDF_TARGET_ESP32S2)
+            int16_t* s16 = (int16_t*)stereoBuf;
+            if (_pinR >= 0) {
+                uint8_t* dac8 = (uint8_t*)buf;
+                bool swap = (_dataPin == 26 || _dataPin == 18);
+                if (swap) {
+                    for (int i = 0; i < blockSamples; i++) {
+                        dac8[i * 2]     = (uint8_t)((uint32_t)(s16[i * 2 + 1] + 32768) >> 8);
+                        dac8[i * 2 + 1] = (uint8_t)((uint32_t)(s16[i * 2] + 32768) >> 8);
+                    }
+                } else {
+                    for (int i = 0; i < blockSamples * 2; i++) {
+                        dac8[i] = (uint8_t)((uint32_t)(s16[i] + 32768) >> 8);
+                    }
+                }
+                dac_continuous_write(dac_handle, dac8, blockSamples * 2, &written, portMAX_DELAY);
+            } else {
+                uint16_t* dacBuf = (uint16_t*)buf;
+                for (int i = 0; i < blockSamples; i++) {
+                    int32_t mono = ((int32_t)s16[i * 2] + (int32_t)s16[i * 2 + 1]) >> 1;
+                    uint32_t smp = (uint32_t)(mono + 32768) >> 8;
+                    dacBuf[i] = (uint16_t)((smp << 8) | smp);
+                }
+                dac_continuous_write(dac_handle, (uint8_t*)dacBuf, blockSamples * 2, &written, portMAX_DELAY);
+            }
+#endif
+        } else if (currentMode == SMODE_I2S) {
+            if (_i2sDepth == I2S_32BIT) {
+                i2s_channel_write(tx_handle, stereoBuf, blockSamples * 2 * sizeof(int32_t), &written, portMAX_DELAY);
+            } else {
+                i2s_channel_write(tx_handle, stereoBuf, blockSamples * 2 * sizeof(int16_t), &written, portMAX_DELAY);
+            }
+        } else if (currentMode == SMODE_PWM) {
+            if (xSemaphoreTake(pwm_sema, pdMS_TO_TICKS(20)) != pdTRUE) continue;
+            int render_target = 1 - pwm_active_buf;
+            int16_t* s16 = (int16_t*)stereoBuf;
+            int16_t* dst = pwm_ping_pong_buf[render_target];
+            if (dst != nullptr) {
+                if (pwm_is_stereo) {
+                    memcpy(dst, s16, blockSamples * 2 * sizeof(int16_t));
+                } else {
+                    for (int i = 0; i < blockSamples; i++) {
+                        dst[i] = (int16_t)(((int32_t)s16[i * 2] + (int32_t)s16[i * 2 + 1]) >> 1);
+                    }
+                }
+            }
+        } else if (currentMode == SMODE_PDM) {
+            if (_pinR >= 0) {
+                i2s_channel_write(tx_handle, stereoBuf, blockSamples * 2 * sizeof(int16_t), &written, portMAX_DELAY);
+            } else {
+                int16_t* s16 = (int16_t*)stereoBuf;
+                int16_t* out16 = (int16_t*)buf;
+                for (int i = 0; i < blockSamples; i++) {
+                    out16[i] = (int16_t)(((int32_t)s16[i * 2] + (int32_t)s16[i * 2 + 1]) >> 1);
+                }
+                i2s_channel_write(tx_handle, out16, blockSamples * sizeof(int16_t), &written, portMAX_DELAY);
+            }
+        } else if (currentMode == SMODE_CUSTOM) {
+            if (_customStereoOutput) {
+                _customStereoOutput((int16_t*)stereoBuf, blockSamples);
+            } else if (_customOutput) {
+                int16_t* s16 = (int16_t*)stereoBuf;
+                int16_t* out16 = (int16_t*)buf;
+                for (int i = 0; i < blockSamples; i++) {
+                    out16[i] = (int16_t)(((int32_t)s16[i * 2] + (int32_t)s16[i * 2 + 1]) >> 1);
+                }
+                _customOutput(out16, blockSamples);
+            }
+            if (_customStereoOutput || _customOutput) {
+                uint32_t full_cycles = esp_cpu_get_cycle_count() - start_cycles;
+                if (full_cycles < max_cycles_per_block) {
+                    uint32_t wait_us = (max_cycles_per_block - full_cycles) / SYNTH_GET_CPU_FREQ_MHZ();
+                    if (wait_us > 2000) vTaskDelay(pdMS_TO_TICKS(wait_us / 1000));
+                    else SYNTH_DELAY_US(wait_us);
+                }
+            }
+        } else if (currentMode == SMODE_HEADLESS) {
+            uint32_t full_cycles = esp_cpu_get_cycle_count() - start_cycles;
+            if (full_cycles < max_cycles_per_block) {
+                uint32_t wait_us = (max_cycles_per_block - full_cycles) / SYNTH_GET_CPU_FREQ_MHZ();
+                if (wait_us > 2000) vTaskDelay(pdMS_TO_TICKS(wait_us / 1000));
+                else SYNTH_DELAY_US(wait_us);
+            }
+        }
+#else
         if (currentMode == SMODE_DAC) {
 #if defined(CONFIG_IDF_TARGET_ESP32) || defined(CONFIG_IDF_TARGET_ESP32S2)
             int16_t* buf16 = (int16_t*)buf;
@@ -370,39 +626,325 @@ void ESP32Synth::renderLoop() {
                 uint32_t full_cycles = esp_cpu_get_cycle_count() - start_cycles;
                 if (full_cycles < max_cycles_per_block) {
                     uint32_t wait_us = (max_cycles_per_block - full_cycles) / SYNTH_GET_CPU_FREQ_MHZ();
-                    if (wait_us > 2000) {
-                        vTaskDelay(pdMS_TO_TICKS(wait_us / 1000));
-                    } else {
-                        SYNTH_DELAY_US(wait_us);
-                    }
+                    if (wait_us > 2000) vTaskDelay(pdMS_TO_TICKS(wait_us / 1000));
+                    else SYNTH_DELAY_US(wait_us);
                 }
             }
         } else if (currentMode == SMODE_HEADLESS) {
             uint32_t full_cycles = esp_cpu_get_cycle_count() - start_cycles;
             if (full_cycles < max_cycles_per_block) {
                 uint32_t wait_us = (max_cycles_per_block - full_cycles) / SYNTH_GET_CPU_FREQ_MHZ();
-                if (wait_us > 2000) {
-                    vTaskDelay(pdMS_TO_TICKS(wait_us / 1000));
-                } else {
-                    SYNTH_DELAY_US(wait_us);
-                }
+                if (wait_us > 2000) vTaskDelay(pdMS_TO_TICKS(wait_us / 1000));
+                else SYNTH_DELAY_US(wait_us);
             }
         }
+#endif
     }
 
-    // Cleanup when task ends
     if (buf) heap_caps_free(buf);
     if (stereoBuf) heap_caps_free(stereoBuf);
+#if SYNTH_STEREO
+    if (voiceScratch) heap_caps_free(voiceScratch);
+    for (int i = 0; i < MAX_BUSES; i++) {
+        if (busL[i]) heap_caps_free(busL[i]);
+        if (busR[i]) heap_caps_free(busR[i]);
+        if (busC[i]) heap_caps_free(busC[i]);
+    }
+#else
     for (int i = 0; i < MAX_BUSES; i++) {
         if (busBuffers[i]) heap_caps_free(busBuffers[i]);
     }
+#endif
     audioTaskHandle = NULL;
     vTaskDelete(NULL);
 }
 
-// Core mixer
+#if SYNTH_STEREO
+void IRAM_ATTR ESP32Synth::render(void* buffer, int32_t** busL, int32_t** busR, int32_t** busC, int32_t* voiceScratch, int samples) {
+    _renderSeq++;
+    __sync_synchronize();
+    bool busUsedC[MAX_BUSES] = {false};
+
+    memset(busL[0], 0, samples * sizeof(int32_t));
+    memset(busR[0], 0, samples * sizeof(int32_t));
+    for (int b = 1; b < MAX_BUSES; b++) {
+        if (busesConfig[b].active) {
+            memset(busL[b], 0, samples * sizeof(int32_t));
+            memset(busR[b], 0, samples * sizeof(int32_t));
+        }
+    }
+
+    controlSampleCounter += (uint32_t)samples;
+    while (controlSampleCounter >= controlIntervalSamples) {
+        processControl();
+        controlSampleCounter -= controlIntervalSamples;
+    }
+
+    for (int v = 0; v < MAX_VOICES; v++) {
+        Voice* vo = &voices[v];
+        if (!vo->active) continue;
+
+        int samplesRem = samples;
+        int bufOffset = 0;
+        uint8_t b = vo->targetBus;
+
+        while (samplesRem > 0 && vo->active) {
+            int32_t startEnv, envStep;
+            int stepSamples = updateAdsrBlock(vo, samplesRem, startEnv, envStep);
+            if (startEnv == 0 && vo->currEnvVal == 0 && vo->envState != ENV_ATTACK) break;
+
+            if (!vo->inst) {
+                if (vo->type == WAVE_STREAM) {
+                    renderBlockStream(vo, this->streams, busL[b] + bufOffset, busR[b] + bufOffset, stepSamples, startEnv, envStep);
+                } else if (vo->type == WAVE_CUSTOM) {
+                    if (vo->customStereoWaveFunc) {
+                        vo->customStereoWaveFunc(vo, busL[b] + bufOffset, busR[b] + bufOffset, stepSamples, startEnv, envStep);
+                    } else if (vo->customWaveFunc) {
+                        if (vo->panState == PAN_CENTER) {
+                            if (!busUsedC[b]) { memset(busC[b], 0, samples * sizeof(int32_t)); busUsedC[b] = true; }
+                            vo->customWaveFunc(vo, busC[b] + bufOffset, stepSamples, startEnv, envStep);
+                        } else if (vo->panState == PAN_HARD_L) {
+                            vo->customWaveFunc(vo, busL[b] + bufOffset, stepSamples, startEnv, envStep);
+                        } else if (vo->panState == PAN_HARD_R) {
+                            vo->customWaveFunc(vo, busR[b] + bufOffset, stepSamples, startEnv, envStep);
+                        } else {
+                            memset(voiceScratch, 0, stepSamples * sizeof(int32_t));
+                            vo->customWaveFunc(vo, voiceScratch, stepSamples, startEnv, envStep);
+                            int32_t* dstL = busL[b] + bufOffset;
+                            int32_t* dstR = busR[b] + bufOffset;
+                            int32_t gL = vo->panGainL;
+                            int32_t gR = vo->panGainR;
+                            for (int i = 0; i < stepSamples; i++) {
+                                int64_t s = voiceScratch[i];
+                                dstL[i] += (int32_t)((s * gL) >> 15);
+                                dstR[i] += (int32_t)((s * gR) >> 15);
+                            }
+                        }
+                    }
+                } else if (vo->panState == PAN_CENTER) {
+                    if (!busUsedC[b]) { memset(busC[b], 0, samples * sizeof(int32_t)); busUsedC[b] = true; }
+                    int32_t* mixC = busC[b] + bufOffset;
+                    switch (vo->type) {
+                        case WAVE_SAMPLE:    renderBlockSample(vo, mixC, stepSamples, startEnv, envStep); break;
+                        case WAVE_WAVETABLE: renderBlockWavetable(vo, mixC, stepSamples, startEnv, envStep); break;
+                        case WAVE_NOISE:     renderBlockNoise(vo, mixC, stepSamples, startEnv, envStep); break;
+                        default:             renderBlockBasic(vo, mixC, stepSamples, startEnv, envStep); break;
+                    }
+                } else if (vo->panState == PAN_HARD_L || vo->panState == PAN_HARD_R) {
+                    int32_t* mixTgt = ((vo->panState == PAN_HARD_L) ? busL[b] : busR[b]) + bufOffset;
+                    switch (vo->type) {
+                        case WAVE_SAMPLE:    renderBlockSample(vo, mixTgt, stepSamples, startEnv, envStep); break;
+                        case WAVE_WAVETABLE: renderBlockWavetable(vo, mixTgt, stepSamples, startEnv, envStep); break;
+                        case WAVE_NOISE:     renderBlockNoise(vo, mixTgt, stepSamples, startEnv, envStep); break;
+                        default:             renderBlockBasic(vo, mixTgt, stepSamples, startEnv, envStep); break;
+                    }
+                } else {
+                    int32_t* mixL = busL[b] + bufOffset;
+                    int32_t* mixR = busR[b] + bufOffset;
+                    switch (vo->type) {
+                        case WAVE_SAMPLE:    renderBlockSampleStereo(vo, mixL, mixR, stepSamples, startEnv, envStep); break;
+                        case WAVE_WAVETABLE: renderBlockWavetableStereo(vo, mixL, mixR, stepSamples, startEnv, envStep); break;
+                        case WAVE_NOISE:     renderBlockNoiseStereo(vo, mixL, mixR, stepSamples, startEnv, envStep); break;
+                        default:             renderBlockBasicStereo(vo, mixL, mixR, stepSamples, startEnv, envStep); break;
+                    }
+                }
+            } else {
+                if (vo->panState == PAN_CENTER || vo->panState == PAN_HARD_L || vo->panState == PAN_HARD_R) {
+                    int32_t* mixTgt;
+                    if (vo->panState == PAN_CENTER) {
+                        if (!busUsedC[b]) { memset(busC[b], 0, samples * sizeof(int32_t)); busUsedC[b] = true; }
+                        mixTgt = busC[b] + bufOffset;
+                    } else {
+                        mixTgt = ((vo->panState == PAN_HARD_L) ? busL[b] : busR[b]) + bufOffset;
+                    }
+                    if (vo->currWaveIsBasic) {
+                        WaveType dynamicType = (WaveType)vo->currWaveType;
+                        if (dynamicType == WAVE_NOISE) renderBlockNoise(vo, mixTgt, stepSamples, startEnv, envStep);
+                        else {
+                            WaveType original = vo->type; vo->type = dynamicType;
+                            renderBlockBasic(vo, mixTgt, stepSamples, startEnv, envStep);
+                            vo->type = original;
+                        }
+                    } else {
+                        renderBlockWavetable(vo, mixTgt, stepSamples, startEnv, envStep);
+                    }
+                } else {
+                    int32_t* mixL = busL[b] + bufOffset;
+                    int32_t* mixR = busR[b] + bufOffset;
+                    if (vo->currWaveIsBasic) {
+                        WaveType dynamicType = (WaveType)vo->currWaveType;
+                        if (dynamicType == WAVE_NOISE) renderBlockNoiseStereo(vo, mixL, mixR, stepSamples, startEnv, envStep);
+                        else {
+                            WaveType original = vo->type; vo->type = dynamicType;
+                            renderBlockBasicStereo(vo, mixL, mixR, stepSamples, startEnv, envStep);
+                            vo->type = original;
+                        }
+                    } else {
+                        renderBlockWavetableStereo(vo, mixL, mixR, stepSamples, startEnv, envStep);
+                    }
+                }
+            }
+
+            bufOffset  += stepSamples;
+            samplesRem -= stepSamples;
+        }
+    }
+
+    // Merge Center Fast-Path buffers into L and R
+    uint16_t cGain = _centerGainQ15;
+    for (int b = 0; b < MAX_BUSES; b++) {
+        if (!busUsedC[b]) continue;
+        int32_t* srcC = busC[b];
+        int32_t* dstL = busL[b];
+        int32_t* dstR = busR[b];
+        if (cGain == 32768) {
+#if defined(CONFIG_IDF_TARGET_ESP32S3)
+            int vCount = samples >> 2;
+            v4i32* vC = (v4i32*)srcC; v4i32* vL = (v4i32*)dstL; v4i32* vR = (v4i32*)dstR;
+            for (int i = 0; i < vCount; i++) { v4i32 c = vC[i]; vL[i] += c; vR[i] += c; }
+#else
+            for (int i = 0; i < samples; i++) { int32_t c = srcC[i]; dstL[i] += c; dstR[i] += c; }
+#endif
+        } else if (cGain == 16384) {
+#if defined(CONFIG_IDF_TARGET_ESP32S3)
+            int vCount = samples >> 2;
+            v4i32* vC = (v4i32*)srcC; v4i32* vL = (v4i32*)dstL; v4i32* vR = (v4i32*)dstR;
+            for (int i = 0; i < vCount; i++) { v4i32 c = vC[i] >> 1; vL[i] += c; vR[i] += c; }
+#else
+            for (int i = 0; i < samples; i++) { int32_t c = srcC[i] >> 1; dstL[i] += c; dstR[i] += c; }
+#endif
+        } else {
+            for (int i = 0; i < samples; i++) {
+                int32_t c = (int32_t)(((int64_t)srcC[i] * cGain) >> 15);
+                dstL[i] += c;
+                dstR[i] += c;
+            }
+        }
+    }
+
+    // FX Chains & Mixdown from Buses 1..MAX_BUSES-1 to Bus 0
+    for (int b = 1; b < MAX_BUSES; b++) {
+        AudioBus* bus = &busesConfig[b];
+        if (!bus->active || bus->mixLevel == 0) continue;
+
+        if (UNLIKELY(bus->fxMask)) {
+            for (int f = 0; f < MAX_FX_PER_BUS; f++) {
+                FXNode* fx = &bus->fxChain[f];
+                if (UNLIKELY(fx->active)) {
+                    processBusFXNodeStereo(fx, busL[b], busR[b], voiceScratch, samples, _sampleRate);
+                }
+            }
+        }
+
+        if (UNLIKELY(bus->stereoWidth != 256)) {
+            int32_t w = bus->stereoWidth;
+            for (int i = 0; i < samples; i++) {
+                int32_t l = busL[b][i], r = busR[b][i];
+                int32_t mid = (l + r) >> 1;
+                int32_t side = (int32_t)(((int64_t)(l - r) * w) >> 9);
+                busL[b][i] = mid + side;
+                busR[b][i] = mid - side;
+            }
+        }
+
+        int32_t mVolL = (int32_t)(((uint32_t)bus->mixLevel * bus->panGainL) >> 15);
+        int32_t mVolR = (int32_t)(((uint32_t)bus->mixLevel * bus->panGainR) >> 15);
+        int32_t* srcL = busL[b]; int32_t* srcR = busR[b];
+        int32_t* dstL = busL[0]; int32_t* dstR = busR[0];
+
+#if defined(CONFIG_IDF_TARGET_ESP32S3)
+        v4i32 vVolL = {mVolL, mVolL, mVolL, mVolL};
+        v4i32 vVolR = {mVolR, mVolR, mVolR, mVolR};
+        int vCount = samples >> 2;
+        v4i32* vSrcL = (v4i32*)srcL; v4i32* vSrcR = (v4i32*)srcR;
+        v4i32* vDstL = (v4i32*)dstL; v4i32* vDstR = (v4i32*)dstR;
+        for (int i = 0; i < vCount; i++) {
+            vDstL[i] += (vSrcL[i] * vVolL) >> 8;
+            vDstR[i] += (vSrcR[i] * vVolR) >> 8;
+        }
+#else
+        for (int i = 0; i < samples; i++) {
+            dstL[i] += (srcL[i] * mVolL) >> 8;
+            dstR[i] += (srcR[i] * mVolR) >> 8;
+        }
+#endif
+    }
+
+    // Bus 0 Master FX Chain (Post-Mixdown)
+    if (UNLIKELY(busesConfig[0].fxMask)) {
+        for (int f = 0; f < MAX_FX_PER_BUS; f++) {
+            FXNode* fx = &busesConfig[0].fxChain[f];
+            if (UNLIKELY(fx->active)) {
+                processBusFXNodeStereo(fx, busL[0], busR[0], voiceScratch, samples, _sampleRate);
+            }
+        }
+    }
+
+    // Global Master DSP
+    if (_customStereoDSP) {
+        _customStereoDSP(busL[0], busR[0], samples, this->dp);
+    } else if (_customDSP) {
+        for (int i = 0; i < samples; i++) voiceScratch[i] = (busL[0][i] + busR[0][i]) >> 1;
+        _customDSP(voiceScratch, samples, this->dp);
+        memcpy(busL[0], voiceScratch, samples * sizeof(int32_t));
+        memcpy(busR[0], voiceScratch, samples * sizeof(int32_t));
+    }
+
+    if (UNLIKELY(_masterWidth != 256)) {
+        int32_t w = _masterWidth;
+        for (int i = 0; i < samples; i++) {
+            int32_t l = busL[0][i], r = busR[0][i];
+            int32_t mid = (l + r) >> 1;
+            int32_t side = (int32_t)(((int64_t)(l - r) * w) >> 9);
+            busL[0][i] = mid + side;
+            busR[0][i] = mid - side;
+        }
+    }
+
+    if (UNLIKELY(_masterPan != 0)) {
+        int32_t pL = _masterPanGainL;
+        int32_t pR = _masterPanGainR;
+        for (int i = 0; i < samples; i++) {
+            busL[0][i] = (int32_t)(((int64_t)busL[0][i] * pL) >> 15);
+            busR[0][i] = (int32_t)(((int64_t)busR[0][i] * pR) >> 15);
+        }
+    }
+
+    // Hardware Output Clipping & Bitcrush -> Interleaved Stereo Buffer
+    int32_t mVol = _masterVolume;
+    uint32_t mask32 = 0xFFFFFFFFUL;
+    uint32_t mask16 = 0xFFFFFFFFUL;
+    if (_bitcrush > 0) {
+        mask32 = (_bitcrush >= 32) ? 0xFFFFFFFFUL : (0xFFFFFFFFUL << (32 - _bitcrush));
+        mask16 = (_bitcrush >= 16) ? 0xFFFFUL     : (0xFFFFUL << (16 - _bitcrush));
+    }
+
+    if (currentMode == SMODE_I2S && _i2sDepth == I2S_32BIT) {
+        int32_t* buf32 = (int32_t*)buffer;
+        for (int i = 0; i < samples; i++) {
+            int64_t valL = (int64_t)busL[0][i] * mVol;
+            int64_t valR = (int64_t)busR[0][i] * mVol;
+            valL = (valL > 2147483647LL) ? 2147483647LL : (valL < -2147483648LL) ? -2147483648LL : valL;
+            valR = (valR > 2147483647LL) ? 2147483647LL : (valR < -2147483648LL) ? -2147483648LL : valR;
+            buf32[i * 2]     = (int32_t)valL & mask32;
+            buf32[i * 2 + 1] = (int32_t)valR & mask32;
+        }
+    } else {
+        int16_t* buf16 = (int16_t*)buffer;
+        for (int i = 0; i < samples; i++) {
+            int64_t vL = ((int64_t)busL[0][i] * mVol) >> 16;
+            int64_t vR = ((int64_t)busR[0][i] * mVol) >> 16;
+            buf16[i * 2]     = (int16_t)(hw_clamps16((int32_t)vL) & mask16);
+            buf16[i * 2 + 1] = (int16_t)(hw_clamps16((int32_t)vR) & mask16);
+        }
+    }
+    __sync_synchronize();
+    _renderSeq++;
+}
+#else
 void IRAM_ATTR ESP32Synth::render(void* buffer, int32_t** busBuffers, int samples) {
-    // 1. Zero only Master and active buses efficiently
+    _renderSeq++;
+    __sync_synchronize();
     memset(busBuffers[0], 0, samples * sizeof(int32_t));
     for (int b = 1; b < MAX_BUSES; b++) {
         if (busesConfig[b].active) {
@@ -416,7 +958,6 @@ void IRAM_ATTR ESP32Synth::render(void* buffer, int32_t** busBuffers, int sample
         controlSampleCounter -= controlIntervalSamples;
     }
 
-    // 2. Render voices to their target buses (CPU Cost: O(1) direct pointer access)
     for (int v = 0; v < MAX_VOICES; v++) {
         Voice* vo = &voices[v];
         if (!vo->active) continue;
@@ -444,7 +985,7 @@ void IRAM_ATTR ESP32Synth::render(void* buffer, int32_t** busBuffers, int sample
             } else {
                 if (vo->currWaveIsBasic) {
                     WaveType dynamicType = (WaveType)vo->currWaveType;
-                    if (dynamicType == WAVE_NOISE) { renderBlockNoise(vo, currentMixBuf, stepSamples, startEnv, envStep); } 
+                    if (dynamicType == WAVE_NOISE) { renderBlockNoise(vo, currentMixBuf, stepSamples, startEnv, envStep); }
                     else {
                         WaveType original = vo->type; vo->type = dynamicType;
                         renderBlockBasic(vo, currentMixBuf, stepSamples, startEnv, envStep);
@@ -459,27 +1000,24 @@ void IRAM_ATTR ESP32Synth::render(void* buffer, int32_t** busBuffers, int sample
         }
     }
 
-    // 3. Process FX Chains on isolated buses, then mix down to Master (Bus 0)
     for (int b = 1; b < MAX_BUSES; b++) {
         AudioBus* bus = &busesConfig[b];
         if (!bus->active || bus->mixLevel == 0) continue;
 
-        // Run FX Chain In-Place
-        for (int f = 0; f < MAX_FX_PER_BUS; f++) {
-            FXNode* fx = &bus->fxChain[f];
-            if (UNLIKELY(fx->active)) {
-                if (fx->type == FX_CUSTOM && fx->customFXFunc) {
-                    fx->customFXFunc(busBuffers[b], samples, fx->ep, fx->es);
+        if (UNLIKELY(bus->fxMask)) {
+            for (int f = 0; f < MAX_FX_PER_BUS; f++) {
+                FXNode* fx = &bus->fxChain[f];
+                if (UNLIKELY(fx->active)) {
+                    processBusFXNodeMono(fx, busBuffers[b], samples, _sampleRate);
                 }
             }
         }
 
-        // Mixdown to Bus 0 (Master) utilizing Vectorized processing if S3
         if (bus->mixLevel > 0) {
             int32_t mVol = bus->mixLevel;
             int32_t* src = busBuffers[b];
             int32_t* dst = busBuffers[0];
-            
+
             #if defined(CONFIG_IDF_TARGET_ESP32S3)
             v4i32 vVol = {mVol, mVol, mVol, mVol};
             int vCount = samples >> 2;
@@ -492,12 +1030,19 @@ void IRAM_ATTR ESP32Synth::render(void* buffer, int32_t** busBuffers, int sample
         }
     }
 
-    // 4. Global Master DSP (Always applied to Bus 0)
+    if (UNLIKELY(busesConfig[0].fxMask)) {
+        for (int f = 0; f < MAX_FX_PER_BUS; f++) {
+            FXNode* fx = &busesConfig[0].fxChain[f];
+            if (UNLIKELY(fx->active)) {
+                processBusFXNodeMono(fx, busBuffers[0], samples, _sampleRate);
+            }
+        }
+    }
+
     if (_customDSP) {
         _customDSP(busBuffers[0], samples, this->dp);
     }
 
-    // 5. Hardware Output Clipping & Bitcrush (Using Bus 0)
     int32_t mVol = _masterVolume;
     uint32_t mask32 = 0xFFFFFFFFUL;
     uint32_t mask16 = 0xFFFFFFFFUL;
@@ -546,7 +1091,10 @@ void IRAM_ATTR ESP32Synth::render(void* buffer, int32_t** busBuffers, int sample
             buf16[i] = (int16_t)(hw_clamps16((int32_t)v) & mask16);
         }
     }
+    __sync_synchronize();
+    _renderSeq++;
 }
+#endif
 
 // WAV Header Parser
 bool ESP32Synth::parseWavHeader(SYNTH_FILE_REF file, uint32_t& outSampleRate, uint32_t& outDataPos, uint32_t& outDataSize, uint16_t& outChannels, uint16_t& outBits) {
@@ -649,7 +1197,7 @@ void ESP32Synth::streamLoaderTask(void* param) {
         for (int i = 0; i < MAX_STREAMS; i++) {
             StreamTrack* trk = &synth->streams[i];
             #if ENABLE_MP3
-            if (!trk->active || (!trk->isMP3 && !SYNTH_FILE_VALID(trk->file))) continue;
+            if (!trk->active || !trk->buffer || (!trk->isMP3 && !SYNTH_FILE_VALID(trk->file))) continue;
 
             if (trk->isMP3) {
                 if (trk->seekTarget >= 0) {
@@ -811,6 +1359,20 @@ void ESP32Synth::streamLoaderTask(void* param) {
                             int samples = frameInfo.outputSamps / nCh;
                             uint16_t head = trk->head;
 
+                            #if SYNTH_STEREO
+                            if (nCh == 2) {
+                                for (int f = 0; f < samples; f++) {
+                                    trk->buffer[head] = { mp3FrameBuf[f * 2], mp3FrameBuf[f * 2 + 1] };
+                                    head = (head + 1) & STREAM_BUF_MASK;
+                                }
+                            } else {
+                                for (int f = 0; f < samples; f++) {
+                                    int16_t s = mp3FrameBuf[f];
+                                    trk->buffer[head] = { s, s };
+                                    head = (head + 1) & STREAM_BUF_MASK;
+                                }
+                            }
+#else
                             if (nCh == 2) {
                                 for (int f = 0; f < samples; f++) {
                                     trk->buffer[head] = (int16_t)(((int32_t)mp3FrameBuf[f * 2] + (int32_t)mp3FrameBuf[f * 2 + 1]) >> 1);
@@ -822,6 +1384,7 @@ void ESP32Synth::streamLoaderTask(void* param) {
                                     head = (head + 1) & STREAM_BUF_MASK;
                                 }
                             }
+#endif
                             trk->head = head;
 
                             // Libera o áudio suavemente apenas quando o buffer acumulou amostras suficientes
@@ -844,7 +1407,7 @@ void ESP32Synth::streamLoaderTask(void* param) {
                 continue; // Skip WAV handling
             }
             #else
-            if (!trk->active || !SYNTH_FILE_VALID(trk->file)) continue;
+            if (!trk->active || !trk->buffer || !SYNTH_FILE_VALID(trk->file)) continue;
             #endif
 
             // WAV Seek
@@ -856,9 +1419,11 @@ void ESP32Synth::streamLoaderTask(void* param) {
                     SYNTH_FILE_SEEK(trk->file, targetByte);
                     trk->samplesPlayed = trk->seekTarget;
                 }
+                trk->buffer[0] = {};
                 trk->head = 0;
                 trk->tail = 0;
                 trk->seekTarget = -1;
+                trk->seeking = false;
             }
 
             if (!trk->playing) continue;
@@ -910,6 +1475,72 @@ void ESP32Synth::streamLoaderTask(void* param) {
                 uint16_t head = trk->head;
 
                 // Decode & Downmix to 16-bit Mono (16, 24, 32, 8-bit)
+                #if SYNTH_STEREO
+                if (trk->bitsPerSample == 16) {
+                    if (trk->numChannels == 2) {
+                        uint16_t spaceToEnd = STREAM_BUF_SAMPLES - head;
+                        if (framesRead <= spaceToEnd) {
+                            memcpy((void*)&trk->buffer[head], ptr, framesRead * 4);
+                            head = (head + framesRead) & STREAM_BUF_MASK;
+                        } else {
+                            memcpy((void*)&trk->buffer[head], ptr, spaceToEnd * 4);
+                            memcpy((void*)&trk->buffer[0], ptr + (spaceToEnd * 4), (framesRead - spaceToEnd) * 4);
+                            head = framesRead - spaceToEnd;
+                        }
+                    } else {
+                        for (uint16_t f = 0; f < framesRead; f++, ptr += 2) {
+                            int16_t s = ((int16_t*)ptr)[0];
+                            trk->buffer[head] = { s, s };
+                            head = (head + 1) & STREAM_BUF_MASK;
+                        }
+                    }
+                } else if (trk->bitsPerSample == 24) {
+                    if (trk->numChannels == 2) {
+                        for (uint16_t f = 0; f < framesRead; f++, ptr += 6) {
+                            int16_t l = (int16_t)(ptr[1] | ((int8_t)ptr[2] << 8));
+                            int16_t r = (int16_t)(ptr[4] | ((int8_t)ptr[5] << 8));
+                            trk->buffer[head] = { l, r };
+                            head = (head + 1) & STREAM_BUF_MASK;
+                        }
+                    } else {
+                        for (uint16_t f = 0; f < framesRead; f++, ptr += 3) {
+                            int16_t s = (int16_t)(ptr[1] | ((int8_t)ptr[2] << 8));
+                            trk->buffer[head] = { s, s };
+                            head = (head + 1) & STREAM_BUF_MASK;
+                        }
+                    }
+                } else if (trk->bitsPerSample == 32) {
+                    if (trk->numChannels == 2) {
+                        for (uint16_t f = 0; f < framesRead; f++, ptr += 8) {
+                            int16_t l = (int16_t)(((int32_t*)ptr)[0] >> 16);
+                            int16_t r = (int16_t)(((int32_t*)ptr)[1] >> 16);
+                            trk->buffer[head] = { l, r };
+                            head = (head + 1) & STREAM_BUF_MASK;
+                        }
+                    } else {
+                        for (uint16_t f = 0; f < framesRead; f++, ptr += 4) {
+                            int16_t s = (int16_t)(((int32_t*)ptr)[0] >> 16);
+                            trk->buffer[head] = { s, s };
+                            head = (head + 1) & STREAM_BUF_MASK;
+                        }
+                    }
+                } else if (trk->bitsPerSample == 8) {
+                    if (trk->numChannels == 2) {
+                        for (uint16_t f = 0; f < framesRead; f++, ptr += 2) {
+                            int16_t l = (int16_t)(((int16_t)ptr[0] - 128) << 8);
+                            int16_t r = (int16_t)(((int16_t)ptr[1] - 128) << 8);
+                            trk->buffer[head] = { l, r };
+                            head = (head + 1) & STREAM_BUF_MASK;
+                        }
+                    } else {
+                        for (uint16_t f = 0; f < framesRead; f++, ptr++) {
+                            int16_t s = (int16_t)(((int16_t)*ptr - 128) << 8);
+                            trk->buffer[head] = { s, s };
+                            head = (head + 1) & STREAM_BUF_MASK;
+                        }
+                    }
+                }
+#else
                 if (trk->bitsPerSample == 16) {
                     if (trk->numChannels == 2) {
                         for (uint16_t f = 0; f < framesRead; f++, ptr += 4) {
@@ -970,6 +1601,7 @@ void ESP32Synth::streamLoaderTask(void* param) {
                         }
                     }
                 }
+#endif
 
                 trk->head = head;
                 freeSpace = (STREAM_BUF_SAMPLES + trk->tail - trk->head - 1) & STREAM_BUF_MASK;
@@ -1022,10 +1654,93 @@ IRAM_ATTR int16_t ESP32Synth::fetchWavetableSample(uint16_t id, uint32_t phase) 
     return ((int16_t*)e.data)[idx];
 }
 
+#if SYNTH_STEREO
+bool ESP32Synth::ensurePullBuffers() {
+    if (_pullStereoOut) return true;
+    const int CHUNK_SIZE = 128;
+    _pullVoiceScratch = (int32_t*)heap_caps_aligned_alloc(16, CHUNK_SIZE * sizeof(int32_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    _pullStereoOut    = (int16_t*)heap_caps_aligned_alloc(16, CHUNK_SIZE * 2 * sizeof(int32_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (!_pullVoiceScratch || !_pullStereoOut) { freePullBuffers(); return false; }
+    for (int i = 0; i < MAX_BUSES; i++) {
+        _pullBusL[i] = (int32_t*)heap_caps_aligned_alloc(16, CHUNK_SIZE * sizeof(int32_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        _pullBusR[i] = (int32_t*)heap_caps_aligned_alloc(16, CHUNK_SIZE * sizeof(int32_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        _pullBusC[i] = (int32_t*)heap_caps_aligned_alloc(16, CHUNK_SIZE * sizeof(int32_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        if (!_pullBusL[i] || !_pullBusR[i] || !_pullBusC[i]) { freePullBuffers(); return false; }
+    }
+    return true;
+}
+
+void ESP32Synth::freePullBuffers() {
+    if (_pullVoiceScratch) { heap_caps_free(_pullVoiceScratch); _pullVoiceScratch = nullptr; }
+    if (_pullStereoOut)    { heap_caps_free(_pullStereoOut);    _pullStereoOut    = nullptr; }
+    for (int i = 0; i < MAX_BUSES; i++) {
+        if (_pullBusL[i]) { heap_caps_free(_pullBusL[i]); _pullBusL[i] = nullptr; }
+        if (_pullBusR[i]) { heap_caps_free(_pullBusR[i]); _pullBusR[i] = nullptr; }
+        if (_pullBusC[i]) { heap_caps_free(_pullBusC[i]); _pullBusC[i] = nullptr; }
+    }
+}
+
+void ESP32Synth::generateSamples(int16_t* outBuffer, int numSamples) {
+    if (!outBuffer || numSamples <= 0 || !_running || !ensurePullBuffers()) return;
+    const int CHUNK_SIZE = 128;
+    int samplesRendered = 0;
+    while (samplesRendered < numSamples) {
+        int toRender = numSamples - samplesRendered;
+        if (toRender > CHUNK_SIZE) toRender = CHUNK_SIZE;
+        int simdRender = (toRender + 3) & ~3;
+        uint32_t start_cycles = esp_cpu_get_cycle_count();
+
+        render(_pullStereoOut, _pullBusL, _pullBusR, _pullBusC, _pullVoiceScratch, simdRender);
+
+        uint32_t used_cycles = esp_cpu_get_cycle_count() - start_cycles;
+        uint32_t max_cycles = (SYNTH_GET_CPU_FREQ_MHZ() * 1000000 / _sampleRate) * simdRender;
+        if (max_cycles > 0) _dspLoad = ((float)used_cycles / (float)max_cycles) * 100.0f;
+
+        if (currentMode == SMODE_I2S && _i2sDepth == I2S_32BIT) {
+            int32_t* s32 = (int32_t*)_pullStereoOut;
+            for (int i = 0; i < toRender; i++) {
+                outBuffer[samplesRendered + i] = (int16_t)(((s32[i * 2] >> 16) + (s32[i * 2 + 1] >> 16)) >> 1);
+            }
+        } else {
+            for (int i = 0; i < toRender; i++) {
+                outBuffer[samplesRendered + i] = (int16_t)(((int32_t)_pullStereoOut[i * 2] + (int32_t)_pullStereoOut[i * 2 + 1]) >> 1);
+            }
+        }
+        samplesRendered += toRender;
+    }
+}
+
+void ESP32Synth::generateSamplesStereo(int16_t* outBufferLR, int numSamplePairs) {
+    if (!outBufferLR || numSamplePairs <= 0 || !_running || !ensurePullBuffers()) return;
+    const int CHUNK_SIZE = 128;
+    int samplesRendered = 0;
+    while (samplesRendered < numSamplePairs) {
+        int toRender = numSamplePairs - samplesRendered;
+        if (toRender > CHUNK_SIZE) toRender = CHUNK_SIZE;
+        int simdRender = (toRender + 3) & ~3;
+        uint32_t start_cycles = esp_cpu_get_cycle_count();
+
+        render(_pullStereoOut, _pullBusL, _pullBusR, _pullBusC, _pullVoiceScratch, simdRender);
+
+        uint32_t used_cycles = esp_cpu_get_cycle_count() - start_cycles;
+        uint32_t max_cycles = (SYNTH_GET_CPU_FREQ_MHZ() * 1000000 / _sampleRate) * simdRender;
+        if (max_cycles > 0) _dspLoad = ((float)used_cycles / (float)max_cycles) * 100.0f;
+
+        if (currentMode == SMODE_I2S && _i2sDepth == I2S_32BIT) {
+            int32_t* s32 = (int32_t*)_pullStereoOut;
+            for (int i = 0; i < toRender * 2; i++) {
+                outBufferLR[samplesRendered * 2 + i] = (int16_t)(s32[i] >> 16);
+            }
+        } else {
+            memcpy(outBufferLR + (samplesRendered * 2), _pullStereoOut, toRender * 2 * sizeof(int16_t));
+        }
+        samplesRendered += toRender;
+    }
+}
+#else
 void ESP32Synth::generateSamples(int16_t* outBuffer, int numSamples) {
     if (!outBuffer || numSamples <= 0 || !_running) return;
 
-    // Extremely fast and safe allocation on local stack, preventing heap fragmentation
     const int CHUNK_SIZE = 128;
     int32_t busMemory[MAX_BUSES][CHUNK_SIZE] __attribute__((aligned(16)));
     int32_t* busBuffers[MAX_BUSES];
@@ -1095,6 +1810,7 @@ void ESP32Synth::generateSamplesStereo(int16_t* outBufferLR, int numSamplePairs)
         samplesRendered += toRender;
     }
 }
+#endif
 
 // Control Rate Logic (LFOs, Envelopes, Arps). Runs at ~100Hz.
 void IRAM_ATTR ESP32Synth::processControl() {
@@ -1214,6 +1930,32 @@ void IRAM_ATTR ESP32Synth::processControl() {
             }
         }
 
+        #if SYNTH_STEREO
+        bool panChanged = false;
+        if (vo->slidePanActive && vo->slidePanTicksRemaining > 0) {
+            vo->slidePanCurr += vo->slidePanInc;
+            int32_t pCurr = vo->slidePanCurr >> 15;
+            if (pCurr >  32767) pCurr =  32767;
+            if (pCurr < -32767) pCurr = -32767;
+            vo->pan = (int16_t)pCurr;
+            vo->slidePanTicksRemaining--;
+            if (vo->slidePanTicksRemaining == 0) {
+                vo->pan = vo->slidePanTarget;
+                vo->slidePanActive = false;
+            }
+            panChanged = true;
+        }
+
+        if (vo->panLfoDepth > 0) {
+            vo->panLfoPhase += (vo->panLfoRateInc * controlIntervalSamples);
+            int16_t lfoVal = sineLUT[vo->panLfoPhase >> SINE_SHIFT];
+            int32_t modPan = (int32_t)vo->pan + (((int32_t)vo->panLfoDepth * lfoVal) >> 15);
+            updateVoicePanGains(vo, modPan);
+        } else if (panChanged) {
+            updateVoicePanGains(vo, vo->pan);
+        }
+#endif
+
         // --- Tracker Instrument Logic ---
         if (!vo->active || !vo->inst) continue;
         Instrument* inst = vo->inst;
@@ -1322,6 +2064,8 @@ void IRAM_ATTR ESP32Synth::processControl() {
             }
         }
     }
+
+    processModularLFOs();
 
     if (_customControl) {
         _customControl();

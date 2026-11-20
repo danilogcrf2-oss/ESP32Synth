@@ -614,18 +614,14 @@ public:
     static void EKS_Guitar(Voice* vo, int32_t* mixBuffer, int samples, int32_t startEnv, int32_t envStep) {
         #define MAX_GUITAR_STRINGS 12
         #define KS_BUFFER_SIZE 2048
-        
+
         static int16_t** ks_delay_lines = nullptr;
         static Voice* active_string_ptrs[MAX_GUITAR_STRINGS] = {nullptr};
-        
+
         if (ks_delay_lines == nullptr) {
-            ks_delay_lines = (int16_t**)heap_caps_malloc(MAX_GUITAR_STRINGS * sizeof(int16_t*), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-            if (!ks_delay_lines) return;
-            for (int i = 0; i < MAX_GUITAR_STRINGS; i++) {
-                ks_delay_lines[i] = (int16_t*)heap_caps_calloc(KS_BUFFER_SIZE, sizeof(int16_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-                if (!ks_delay_lines[i]) return;
-            }
+            ks_delay_lines = (int16_t**)heap_caps_calloc(MAX_GUITAR_STRINGS, sizeof(int16_t*), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
         }
+        if (!ks_delay_lines) return;
 
         int stringIdx = -1;
         for (int i = 0; i < MAX_GUITAR_STRINGS; i++) { if (active_string_ptrs[i] == vo) { stringIdx = i; break; } }
@@ -636,15 +632,19 @@ public:
         }
         if (stringIdx == -1) stringIdx = 0;
 
+        if (ks_delay_lines[stringIdx] == nullptr) {
+            ks_delay_lines[stringIdx] = (int16_t*)heap_caps_calloc(KS_BUFFER_SIZE, sizeof(int16_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        }
         int16_t* __restrict__ delayLine = ks_delay_lines[stringIdx];
-        
-        if (vo->cw[0] == 0) { 
+        if (!delayLine) return;
+
+        if (vo->cw[0] == 0) {
             uint32_t period = (vo->phaseInc > 0) ? (uint32_t)(4294967296ULL / vo->phaseInc) : 109;
             if (period > KS_BUFFER_SIZE - 1) period = KS_BUFFER_SIZE - 1;
             if (period < 2) period = 2;
-            
+
             vo->cw[1] = period; vo->cw[2] = 0; vo->cw[3] = 0;
-            
+
             uint32_t rng = vo->rngState; int32_t lp = 0;
             int32_t pick_energy = 32767;
             int32_t pick_decay  = (period < 150) ? (32767 / (period / 3 + 1)) : (32767 / period);
@@ -652,12 +652,12 @@ public:
 
             for (uint32_t i = 0; i < period; i++) {
                 rng = (rng * 1664525) + 1013904223;
-                int32_t noise = (int32_t)(rng >> 16) - 32768; 
+                int32_t noise = (int32_t)(rng >> 16) - 32768;
                 noise = (noise * pick_energy) >> 15;
                 if (pick_energy > pick_decay) pick_energy -= pick_decay; else pick_energy = 0;
-                if (i < 3 && period < 150) noise += 24000; 
-                lp += ((noise - lp) * lp_coef) >> 8; 
-                delayLine[i] = (int16_t)(lp); 
+                if (i < 3 && period < 150) noise += 24000;
+                lp += ((noise - lp) * lp_coef) >> 8;
+                delayLine[i] = (int16_t)(lp);
             }
             vo->rngState = rng; vo->cw[0] = 1;
         }
@@ -668,15 +668,15 @@ public:
         int32_t  currentEnv = startEnv;
         const int32_t  volBase = ((uint32_t)vo->vol * vo->trmModGain) >> 8;
 
-        const int32_t decay_factor = (vo->envState == ENV_RELEASE) ? 210 : 255; 
-        const int32_t stretch      = (period < 150) ? 170 : 150; 
+        const int32_t decay_factor = (vo->envState == ENV_RELEASE) ? 210 : 255;
+        const int32_t stretch      = (period < 150) ? 170 : 150;
         const int32_t inv_stretch  = 256 - stretch;
 
         for (int i = 0; i < samples; i++) {
             int16_t currentS = delayLine[idx];
             int32_t filtered = ((currentS * stretch) + (lastS * inv_stretch)) >> 8;
-            int32_t newVal   = (filtered * decay_factor) >> 8; 
-            
+            int32_t newVal   = (filtered * decay_factor) >> 8;
+
             delayLine[idx] = (int16_t)newVal; lastS = newVal;
             idx++; if (idx >= period) idx = 0;
 
@@ -691,47 +691,50 @@ public:
         vo->cw[2] = idx; vo->cw[3] = lastS;
     }
 
-
     // ====================================================================================
     // PRE-MADE DSP EFFECTS (Custom DSP Hooks)
     // ====================================================================================
 
-    static void DSP_HammondLeslie(int32_t* mixBuffer, int numSamples, int16_t* dp) {
+#if SYNTH_STEREO
+    static void DSP_HammondLeslie(int32_t* mixL, int32_t* mixR, int numSamples, int16_t* dp) {
         #define ROTARY_DELAY_SIZE 1024
         #define ROTARY_DELAY_MASK (ROTARY_DELAY_SIZE - 1)
         #define CMB1_SIZE 487
         #define CMB2_SIZE 577
         #define CMB3_SIZE 613
         #define AP1_SIZE  191
-        
+
         static int32_t* rotaryDelayLine = nullptr;
         static int32_t* cmb1_buf = nullptr; static int32_t* cmb2_buf = nullptr;
         static int32_t* cmb3_buf = nullptr; static int32_t* ap1_buf = nullptr;
+        static bool     allocAttempted = false;
         static uint16_t rotaryWriteIdx=0, cmb1_idx=0, cmb2_idx=0, cmb3_idx=0, ap1_idx=0;
-        static int32_t currentHornSpeed=0, currentDrumSpeed=0, crossoverLPState=0, dc_estimate=0, currentRevMix=0;
+        static int32_t currentHornSpeed=0, currentDrumSpeed=0, crossoverL=0, crossoverR=0;
+        static int32_t dc_estL=0, dc_estR=0, currentRevMix=0;
         static uint32_t hornLFO=0, drumLFO=0;
 
-        if (rotaryDelayLine == nullptr) {
+        if (!allocAttempted) {
+            allocAttempted = true;
             rotaryDelayLine = (int32_t*)heap_caps_calloc(ROTARY_DELAY_SIZE, sizeof(int32_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
             cmb1_buf = (int32_t*)heap_caps_calloc(CMB1_SIZE, sizeof(int32_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
             cmb2_buf = (int32_t*)heap_caps_calloc(CMB2_SIZE, sizeof(int32_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
             cmb3_buf = (int32_t*)heap_caps_calloc(CMB3_SIZE, sizeof(int32_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
             ap1_buf  = (int32_t*)heap_caps_calloc(AP1_SIZE, sizeof(int32_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-            if (!rotaryDelayLine || !cmb1_buf || !cmb2_buf || !cmb3_buf || !ap1_buf) return;
         }
-        
+        if (!rotaryDelayLine || !cmb1_buf || !cmb2_buf || !cmb3_buf || !ap1_buf) return;
+
         int speedState = dp[0];
         int32_t targetHornSpeed = (speedState == 2) ? 690 : (speedState == 1) ? 80 : 0;
         int32_t targetDrumSpeed = (speedState == 2) ? 570 : (speedState == 1) ? 70 : 0;
         int32_t targetReverb = dp[1] > 0 ? dp[1] : 140;
-        
-        if (currentHornSpeed < targetHornSpeed) { currentHornSpeed += 12; if (currentHornSpeed > targetHornSpeed) currentHornSpeed = targetHornSpeed; } 
+
+        if (currentHornSpeed < targetHornSpeed) { currentHornSpeed += 12; if (currentHornSpeed > targetHornSpeed) currentHornSpeed = targetHornSpeed; }
         else if (currentHornSpeed > targetHornSpeed) { if (currentHornSpeed >= 6) currentHornSpeed -= 6; else currentHornSpeed = targetHornSpeed; }
 
-        if (currentDrumSpeed < targetDrumSpeed) { currentDrumSpeed += 3; if (currentDrumSpeed > targetDrumSpeed) currentDrumSpeed = targetDrumSpeed; } 
+        if (currentDrumSpeed < targetDrumSpeed) { currentDrumSpeed += 3; if (currentDrumSpeed > targetDrumSpeed) currentDrumSpeed = targetDrumSpeed; }
         else if (currentDrumSpeed > targetDrumSpeed) { if (currentDrumSpeed >= 1) currentDrumSpeed -= 1; else currentDrumSpeed = targetDrumSpeed; }
-        
-        if (currentRevMix < targetReverb) { currentRevMix += 2; if (currentRevMix > targetReverb) currentRevMix = targetReverb; } 
+
+        if (currentRevMix < targetReverb) { currentRevMix += 2; if (currentRevMix > targetReverb) currentRevMix = targetReverb; }
         else if (currentRevMix > targetReverb) { currentRevMix -= 2; if (currentRevMix < targetReverb) currentRevMix = targetReverb; }
 
         int32_t tremDepthHorn = (speedState == 2) ? 80 : (speedState == 1) ? 40 : 0;
@@ -739,12 +742,421 @@ public:
 
         uint32_t hornInc = (uint32_t)(((uint64_t)currentHornSpeed * 4294967296ULL) / 4800000ULL);
         uint32_t drumInc = (uint32_t)(((uint64_t)currentDrumSpeed * 4294967296ULL) / 4800000ULL);
-        
+
+        for (int i = 0; i < numSamples; i++) {
+            int32_t sL = mixL[i];
+            int32_t sR = mixR[i];
+            dc_estL += (sL - dc_estL) >> 9; sL -= dc_estL;
+            dc_estR += (sR - dc_estR) >> 9; sR -= dc_estR;
+
+            crossoverL += (sL - crossoverL) >> 3;
+            crossoverR += (sR - crossoverR) >> 3;
+            int32_t bassL = crossoverL, bassR = crossoverR;
+            int32_t trebleMono = ((sL - crossoverL) + (sR - crossoverR)) >> 1;
+
+            rotaryDelayLine[rotaryWriteIdx] = trebleMono;
+
+            int16_t lfoSinL = sineLUT[hornLFO >> SINE_SHIFT];
+            int16_t lfoSinR = sineLUT[(hornLFO + 0x80000000UL) >> SINE_SHIFT];
+
+            int32_t offL = 23040 + ((lfoSinL * 15) >> 6);
+            int32_t rIdxL = (rotaryWriteIdx - (offL >> 8)) & ROTARY_DELAY_MASK;
+            int32_t dL1 = rotaryDelayLine[rIdxL];
+            int32_t delTrebleL = dL1 + (((rotaryDelayLine[(rIdxL - 1) & ROTARY_DELAY_MASK] - dL1) * (offL & 0xFF)) >> 8);
+
+            int32_t offR = 23040 + ((lfoSinR * 15) >> 6);
+            int32_t rIdxR = (rotaryWriteIdx - (offR >> 8)) & ROTARY_DELAY_MASK;
+            int32_t dR1 = rotaryDelayLine[rIdxR];
+            int32_t delTrebleR = dR1 + (((rotaryDelayLine[(rIdxR - 1) & ROTARY_DELAY_MASK] - dR1) * (offR & 0xFF)) >> 8);
+
+            int32_t trebleL = (delTrebleL * (256 + ((sineLUT[(hornLFO + (1UL << 30)) >> SINE_SHIFT] * tremDepthHorn) >> 15))) >> 8;
+            int32_t trebleR = (delTrebleR * (256 + ((sineLUT[(hornLFO + (3UL << 30)) >> SINE_SHIFT] * tremDepthHorn) >> 15))) >> 8;
+            bassL = (bassL * (256 + ((sineLUT[(drumLFO + (1UL << 30)) >> SINE_SHIFT] * tremDepthDrum) >> 15))) >> 8;
+            bassR = (bassR * (256 + ((sineLUT[(drumLFO + (3UL << 30)) >> SINE_SHIFT] * tremDepthDrum) >> 15))) >> 8;
+
+            int32_t dryL = bassL + trebleL;
+            int32_t dryR = bassR + trebleR;
+            int32_t reverbInput = (dryL + dryR) >> 2;
+
+            int32_t c1_out = cmb1_buf[cmb1_idx]; static int32_t c1_damp = 0; c1_damp += (c1_out - c1_damp) >> 2;
+            cmb1_buf[cmb1_idx] = reverbInput + ((c1_damp * 228) >> 8); if (++cmb1_idx >= CMB1_SIZE) cmb1_idx = 0;
+
+            int32_t c2_out = cmb2_buf[cmb2_idx]; static int32_t c2_damp = 0; c2_damp += (c2_out - c2_damp) >> 2;
+            cmb2_buf[cmb2_idx] = reverbInput + ((c2_damp * 223) >> 8); if (++cmb2_idx >= CMB2_SIZE) cmb2_idx = 0;
+
+            int32_t c3_out = cmb3_buf[cmb3_idx]; static int32_t c3_damp = 0; c3_damp += (c3_out - c3_damp) >> 2;
+            cmb3_buf[cmb3_idx] = reverbInput + ((c3_damp * 218) >> 8); if (++cmb3_idx >= CMB3_SIZE) cmb3_idx = 0;
+
+            int32_t ap_out_delay = ap1_buf[ap1_idx];
+            int32_t ap_val = (((c1_out + c2_out + c3_out) * 21845) >> 16) + ((ap_out_delay * 130) >> 8);
+            ap1_buf[ap1_idx] = ap_val;
+            if (++ap1_idx >= AP1_SIZE) ap1_idx = 0;
+
+            static int32_t wet_lpfL = 0, wet_lpfR = 0;
+            int32_t apOut = ap_out_delay - ((ap_val * 130) >> 8);
+            int32_t sideDiff = (c1_out - c2_out) >> 1;
+            wet_lpfL += ((apOut + sideDiff) - wet_lpfL) >> 1;
+            wet_lpfR += ((apOut - sideDiff) - wet_lpfR) >> 1;
+
+            mixL[i] = dryL + ((wet_lpfL * currentRevMix) >> 8);
+            mixR[i] = dryR + ((wet_lpfR * currentRevMix) >> 8);
+
+            rotaryWriteIdx = (rotaryWriteIdx + 1) & ROTARY_DELAY_MASK;
+            hornLFO += hornInc; drumLFO += drumInc;
+        }
+    }
+
+    static void DSP_Pedalboard(int32_t* mixL, int32_t* mixR, int numSamples, int16_t* dp) {
+        #define CHORUS_SIZE 2048
+        #define CHORUS_MASK (CHORUS_SIZE - 1)
+        #define DELAY_FRAMES 8192
+
+        static int32_t* chorus_buffer = nullptr;
+        static int16_t* delay_bufL    = nullptr;
+        static int16_t* delay_bufR    = nullptr;
+        static uint32_t delay_mask    = DELAY_FRAMES - 1;
+        static bool     initAttempted = false;
+        static uint32_t chorus_idx=0, chorus_lfo=0, delay_idx=0;
+        static int32_t body_lpL=0, body_lpR=0, comp_env=0;
+        static int32_t dist_hpL=0, dist_hpR=0, cab_lp1L=0, cab_lp2L=0, cab_lp3L=0;
+        static int32_t cab_lp1R=0, cab_lp2R=0, cab_lp3R=0;
+
+        if (!initAttempted) {
+            initAttempted = true;
+            chorus_buffer = (int32_t*)heap_caps_calloc(CHORUS_SIZE, sizeof(int32_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+            delay_bufL    = (int16_t*)heap_caps_calloc(DELAY_FRAMES, sizeof(int16_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+            delay_bufR    = (int16_t*)heap_caps_calloc(DELAY_FRAMES, sizeof(int16_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+            if (!delay_bufL || !delay_bufR) {
+                if (delay_bufL) { heap_caps_free(delay_bufL); delay_bufL = nullptr; }
+                if (delay_bufR) { heap_caps_free(delay_bufR); delay_bufR = nullptr; }
+                delay_bufL = (int16_t*)heap_caps_calloc(4096, sizeof(int16_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+                delay_bufR = (int16_t*)heap_caps_calloc(4096, sizeof(int16_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+                delay_mask = 4095;
+            }
+        }
+
+        bool pedal_distortion = (dp[0] > 0);
+        bool pedal_chorus     = (dp[1] > 0) && (chorus_buffer != nullptr);
+        bool pedal_delay      = (dp[2] > 0) && (delay_bufL != nullptr) && (delay_bufR != nullptr);
+
+        for (int i = 0; i < numSamples; i++) {
+            int32_t smpL = mixL[i];
+            int32_t smpR = mixR[i];
+
+            if (!pedal_distortion) {
+                body_lpL += ((smpL - body_lpL) * 12) >> 8; smpL += body_lpL;
+                body_lpR += ((smpR - body_lpR) * 12) >> 8; smpR += body_lpR;
+            } else {
+                int32_t absL = (smpL < 0) ? -smpL : smpL;
+                int32_t absR = (smpR < 0) ? -smpR : smpR;
+                int32_t rect = (absL > absR) ? absL : absR;
+                comp_env += ((rect - comp_env) * (rect > comp_env ? 10 : 1)) >> 8;
+                int32_t gain = 256;
+                if (comp_env > 2000) { gain = 256 - ((comp_env - 2000) >> 5); if (gain < 64) gain = 64; }
+
+                int32_t gL = ((smpL * gain) >> 8) * 4;
+                int32_t gR = ((smpR * gain) >> 8) * 4;
+                dist_hpL += ((gL - dist_hpL) * 8) >> 8;
+                dist_hpR += ((gR - dist_hpR) * 8) >> 8;
+                int32_t drvL = (gL - dist_hpL) * 14;
+                int32_t drvR = (gR - dist_hpR) * 14;
+
+                if (drvL > 16000) drvL = 16000 + ((drvL - 16000) >> 2);
+                else if (drvL < -12000) drvL = -12000 + ((drvL + 12000) >> 2);
+                if (drvR > 16000) drvR = 16000 + ((drvR - 16000) >> 2);
+                else if (drvR < -12000) drvR = -12000 + ((drvR + 12000) >> 2);
+
+                cab_lp1L += ((drvL - cab_lp1L) * 110) >> 8; cab_lp2L += ((cab_lp1L - cab_lp2L) * 110) >> 8; cab_lp3L += ((cab_lp2L - cab_lp3L) * 110) >> 8;
+                cab_lp1R += ((drvR - cab_lp1R) * 110) >> 8; cab_lp2R += ((cab_lp1R - cab_lp2R) * 110) >> 8; cab_lp3R += ((cab_lp2R - cab_lp3R) * 110) >> 8;
+                smpL = cab_lp3L;
+                smpR = cab_lp3R;
+            }
+
+            if (pedal_chorus) {
+                chorus_buffer[chorus_idx] = (smpL + smpR) >> 1;
+                chorus_lfo += 60000;
+                uint32_t tapL = (chorus_idx - (480 + ((sineLUT[(chorus_lfo >> SINE_SHIFT) & SINE_LUT_MASK] * 200) >> 15))) & CHORUS_MASK;
+                uint32_t tapR = (chorus_idx - (480 + ((sineLUT[((chorus_lfo + 0x80000000UL) >> SINE_SHIFT) & SINE_LUT_MASK] * 200) >> 15))) & CHORUS_MASK;
+                smpL = (smpL + chorus_buffer[tapL]) >> 1;
+                smpR = (smpR + chorus_buffer[tapR]) >> 1;
+                chorus_idx = (chorus_idx + 1) & CHORUS_MASK;
+            }
+
+            if (pedal_delay) {
+                int32_t dL = delay_bufL[delay_idx];
+                int32_t dR = delay_bufR[delay_idx];
+                int32_t outL = smpL + ((dL * 102) >> 8);
+                int32_t outR = smpR + ((dR * 102) >> 8);
+                int32_t fbL  = (smpL + ((dR * 110) >> 8)) >> 1;
+                int32_t fbR  = (smpR + ((dL * 110) >> 8)) >> 1;
+                if (fbL > 32767) fbL = 32767; else if (fbL < -32768) fbL = -32768;
+                if (fbR > 32767) fbR = 32767; else if (fbR < -32768) fbR = -32768;
+                delay_bufL[delay_idx] = (int16_t)fbL;
+                delay_bufR[delay_idx] = (int16_t)fbR;
+                smpL = outL;
+                smpR = outR;
+                delay_idx = (delay_idx + 1) & delay_mask;
+            }
+
+            mixL[i] = (smpL * 180) >> 8;
+            mixR[i] = (smpR * 180) >> 8;
+        }
+    }
+
+    static void FX_BiquadFilter(int32_t* busL, int32_t* busR, int samples, int16_t* ep, int32_t* es) {
+        int32_t fc = ep[0];
+        if (fc < 20) fc = 20;
+        else if (fc > 20000) fc = 20000;
+
+        int16_t filterMode = ep[1];
+        int32_t q_param = ep[2];
+        int16_t bwMode = ep[3];
+        int16_t mix = ep[4];
+        if (mix <= 0 || mix > 255) mix = 255;
+
+        int32_t sin_q28, cos_q28, omc_q28;
+
+        if (fc < 350) {
+            int32_t w0_q24 = fc * 2195;
+            int32_t w0_sq_q24 = (int32_t)(((int64_t)w0_q24 * w0_q24) >> 24);
+            int32_t w0_quad_q24 = (int32_t)(((int64_t)w0_sq_q24 * w0_sq_q24) >> 24);
+            omc_q28 = (w0_sq_q24 << 3) - (int32_t)(((int64_t)w0_quad_q24 * 8) / 24);
+            cos_q28 = (1 << 28) - omc_q28;
+            int32_t w0_cube_q24 = (int32_t)(((int64_t)w0_q24 * w0_sq_q24) >> 24);
+            sin_q28 = (w0_q24 << 4) - (int32_t)(((int64_t)w0_cube_q24 * 16) / 6);
+        } else {
+            uint32_t ph_fixed = (uint32_t)(((uint64_t)fc * 5726623ULL) >> 10);
+            uint32_t idx = (ph_fixed >> 16) & SINE_LUT_MASK;
+            uint32_t frac = ph_fixed & 0xFFFF;
+            int32_t s0_val = sineLUT[idx];
+            int32_t s1_val = sineLUT[(idx + 1) & SINE_LUT_MASK];
+            sin_q28 = (s0_val + (int32_t)(((int64_t)(s1_val - s0_val) * frac) >> 16)) << 13;
+            uint32_t idx_c = (idx + (SINE_LUT_SIZE / 4)) & SINE_LUT_MASK;
+            int32_t c0_val = sineLUT[idx_c];
+            int32_t c1_val = sineLUT[(idx_c + 1) & SINE_LUT_MASK];
+            cos_q28 = (c0_val + (int32_t)(((int64_t)(c1_val - c0_val) * frac) >> 16)) << 13;
+            omc_q28 = (1 << 28) - cos_q28;
+        }
+
+        int32_t alpha_q28;
+        if (bwMode == 1) {
+            int32_t bw_hz = (q_param < 1) ? 1 : q_param;
+            alpha_q28 = (int32_t)(((int64_t)sin_q28 * bw_hz) / ((int64_t)fc << 1));
+        } else {
+            int32_t q_fixed = (q_param < 10) ? 10 : q_param;
+            alpha_q28 = (int32_t)(((int64_t)sin_q28 * 50) / q_fixed);
+        }
+        if (alpha_q28 < 1) alpha_q28 = 1;
+
+        int32_t k_a0 = (1 << 28) + alpha_q28;
+        int32_t k_a2 = (1 << 28) - alpha_q28;
+        int32_t k_b0, k_b1, k_b2;
+        int64_t a1_val = -((int64_t)cos_q28 << 1);
+
+        if (filterMode == 1) {
+            int32_t one_p_cos = (1 << 28) + cos_q28;
+            k_b0 = one_p_cos >> 1; k_b1 = -one_p_cos; k_b2 = k_b0;
+        } else if (filterMode == 2) {
+            k_b0 = alpha_q28; k_b1 = 0; k_b2 = -alpha_q28;
+        } else if (filterMode == 3) {
+            k_b0 = (1 << 28); k_b1 = (int32_t)a1_val; k_b2 = k_b0;
+        } else {
+            k_b0 = omc_q28 >> 1; k_b1 = omc_q28; k_b2 = k_b0;
+        }
+
+        int32_t c_b0 = (int32_t)(((int64_t)k_b0 << 28) / k_a0);
+        int32_t c_b1 = (int32_t)(((int64_t)k_b1 << 28) / k_a0);
+        int32_t c_b2 = (int32_t)(((int64_t)k_b2 << 28) / k_a0);
+        int32_t c_a1 = (int32_t)((a1_val << 28) / k_a0);
+        int32_t c_a2 = (int32_t)(((int64_t)k_a2 << 28) / k_a0);
+
+        int64_t s1L = *(int64_t*)&es[0], s2L = *(int64_t*)&es[2];
+        int64_t s1R = *(int64_t*)&es[4], s2R = *(int64_t*)&es[6];
+
+        if (mix == 255) {
+            for (int i = 0; i < samples; i++) {
+                int32_t xL = busL[i];
+                int64_t ysL = (int64_t)c_b0 * xL + s1L;
+                int32_t yiL = (int32_t)(ysL >> 28), yfL = (int32_t)(ysL & 0x0FFFFFFF);
+                if (UNLIKELY(yiL > 262143)) { yiL = 262143; yfL = 0; }
+                else if (UNLIKELY(yiL < -262143)) { yiL = -262143; yfL = 0; }
+                s1L = ((int64_t)c_b1 * xL) - (((int64_t)c_a1 * yiL) + (((int64_t)c_a1 * yfL) >> 28)) + s2L;
+                s2L = ((int64_t)c_b2 * xL) - (((int64_t)c_a2 * yiL) + (((int64_t)c_a2 * yfL) >> 28));
+                busL[i] = yiL;
+
+                int32_t xR = busR[i];
+                int64_t ysR = (int64_t)c_b0 * xR + s1R;
+                int32_t yiR = (int32_t)(ysR >> 28), yfR = (int32_t)(ysR & 0x0FFFFFFF);
+                if (UNLIKELY(yiR > 262143)) { yiR = 262143; yfR = 0; }
+                else if (UNLIKELY(yiR < -262143)) { yiR = -262143; yfR = 0; }
+                s1R = ((int64_t)c_b1 * xR) - (((int64_t)c_a1 * yiR) + (((int64_t)c_a1 * yfR) >> 28)) + s2R;
+                s2R = ((int64_t)c_b2 * xR) - (((int64_t)c_a2 * yiR) + (((int64_t)c_a2 * yfR) >> 28));
+                busR[i] = yiR;
+            }
+        } else {
+            for (int i = 0; i < samples; i++) {
+                int32_t xL = busL[i];
+                int64_t ysL = (int64_t)c_b0 * xL + s1L;
+                int32_t yiL = (int32_t)(ysL >> 28), yfL = (int32_t)(ysL & 0x0FFFFFFF);
+                if (UNLIKELY(yiL > 262143)) { yiL = 262143; yfL = 0; }
+                else if (UNLIKELY(yiL < -262143)) { yiL = -262143; yfL = 0; }
+                s1L = ((int64_t)c_b1 * xL) - (((int64_t)c_a1 * yiL) + (((int64_t)c_a1 * yfL) >> 28)) + s2L;
+                s2L = ((int64_t)c_b2 * xL) - (((int64_t)c_a2 * yiL) + (((int64_t)c_a2 * yfL) >> 28));
+                busL[i] = xL + (((yiL - xL) * mix) >> 8);
+
+                int32_t xR = busR[i];
+                int64_t ysR = (int64_t)c_b0 * xR + s1R;
+                int32_t yiR = (int32_t)(ysR >> 28), yfR = (int32_t)(ysR & 0x0FFFFFFF);
+                if (UNLIKELY(yiR > 262143)) { yiR = 262143; yfR = 0; }
+                else if (UNLIKELY(yiR < -262143)) { yiR = -262143; yfR = 0; }
+                s1R = ((int64_t)c_b1 * xR) - (((int64_t)c_a1 * yiR) + (((int64_t)c_a1 * yfR) >> 28)) + s2R;
+                s2R = ((int64_t)c_b2 * xR) - (((int64_t)c_a2 * yiR) + (((int64_t)c_a2 * yfR) >> 28));
+                busR[i] = xR + (((yiR - xR) * mix) >> 8);
+            }
+        }
+
+        *(int64_t*)&es[0] = s1L; *(int64_t*)&es[2] = s2L;
+        *(int64_t*)&es[4] = s1R; *(int64_t*)&es[6] = s2R;
+    }
+
+    static void FX_BiquadFilterFast(int32_t* busL, int32_t* busR, int samples, int16_t* ep, int32_t* es) {
+        int32_t fc = ep[0];
+        if (fc < 20) fc = 20;
+        else if (fc > 20000) fc = 20000;
+
+        int16_t filterMode = ep[1];
+        int32_t q_param = ep[2];
+        int16_t bwMode = ep[3];
+        int16_t mix = ep[4];
+        if (mix <= 0 || mix > 255) mix = 255;
+
+        int32_t idx = (fc * 32) / 375;
+        if (idx > 2047) idx = 2047;
+
+        int32_t sin_w0 = sineLUT[idx];
+        int32_t cos_w0 = sineLUT[(idx + 1024) & 4095];
+
+        int32_t alpha;
+        if (bwMode == 1) {
+            int32_t bw_hz = (q_param < 1) ? 1 : q_param;
+            alpha = (int32_t)(((int64_t)sin_w0 * bw_hz) / ((int64_t)fc << 1));
+        } else {
+            int32_t q_fixed = (q_param < 10) ? 10 : q_param;
+            alpha = (sin_w0 * 50) / q_fixed;
+        }
+        if (alpha < 1) alpha = 1;
+
+        int32_t k_a0 = 32768 + alpha;
+        int32_t k_a1 = -2 * cos_w0;
+        int32_t k_a2 = 32768 - alpha;
+        int32_t k_b0, k_b1, k_b2;
+
+        if (filterMode == 1) {
+            k_b1 = -(32768 + cos_w0); k_b0 = (32768 + cos_w0) >> 1; k_b2 = k_b0;
+        } else if (filterMode == 2) {
+            k_b0 = alpha; k_b1 = 0; k_b2 = -alpha;
+        } else if (filterMode == 3) {
+            k_b0 = 32768; k_b1 = -2 * cos_w0; k_b2 = 32768;
+        } else {
+            k_b1 = 32768 - cos_w0; k_b0 = k_b1 >> 1; k_b2 = k_b0;
+        }
+
+        int32_t c_b0 = (int32_t)(((int64_t)k_b0 << 24) / k_a0);
+        int32_t c_b1 = (int32_t)(((int64_t)k_b1 << 24) / k_a0);
+        int32_t c_b2 = (int32_t)(((int64_t)k_b2 << 24) / k_a0);
+        int32_t c_a1 = (int32_t)(((int64_t)k_a1 << 24) / k_a0);
+        int32_t c_a2 = (int32_t)(((int64_t)k_a2 << 24) / k_a0);
+
+        int32_t x1L = es[0], x2L = es[1], y1L = es[2], y2L = es[3];
+        int32_t x1R = es[4], x2R = es[5], y1R = es[6], y2R = es[7];
+
+        if (mix == 255) {
+            for (int i = 0; i < samples; i++) {
+                int32_t x0L = busL[i];
+                int32_t y0L = (int32_t)((((int64_t)c_b0 * x0L) + ((int64_t)c_b1 * x1L) + ((int64_t)c_b2 * x2L) - ((int64_t)c_a1 * y1L) - ((int64_t)c_a2 * y2L)) >> 24);
+                y0L -= (y0L >> 9);
+                if (UNLIKELY(y0L > 262143)) y0L = 262143; else if (UNLIKELY(y0L < -262143)) y0L = -262143;
+                x2L = x1L; x1L = x0L; y2L = y1L; y1L = y0L;
+                busL[i] = y0L;
+
+                int32_t x0R = busR[i];
+                int32_t y0R = (int32_t)((((int64_t)c_b0 * x0R) + ((int64_t)c_b1 * x1R) + ((int64_t)c_b2 * x2R) - ((int64_t)c_a1 * y1R) - ((int64_t)c_a2 * y2R)) >> 24);
+                y0R -= (y0R >> 9);
+                if (UNLIKELY(y0R > 262143)) y0R = 262143; else if (UNLIKELY(y0R < -262143)) y0R = -262143;
+                x2R = x1R; x1R = x0R; y2R = y1R; y1R = y0R;
+                busR[i] = y0R;
+            }
+        } else {
+            for (int i = 0; i < samples; i++) {
+                int32_t x0L = busL[i];
+                int32_t y0L = (int32_t)((((int64_t)c_b0 * x0L) + ((int64_t)c_b1 * x1L) + ((int64_t)c_b2 * x2L) - ((int64_t)c_a1 * y1L) - ((int64_t)c_a2 * y2L)) >> 24);
+                y0L -= (y0L >> 9);
+                if (UNLIKELY(y0L > 262143)) y0L = 262143; else if (UNLIKELY(y0L < -262143)) y0L = -262143;
+                x2L = x1L; x1L = x0L; y2L = y1L; y1L = y0L;
+                busL[i] = x0L + (((y0L - x0L) * mix) >> 8);
+
+                int32_t x0R = busR[i];
+                int32_t y0R = (int32_t)((((int64_t)c_b0 * x0R) + ((int64_t)c_b1 * x1R) + ((int64_t)c_b2 * x2R) - ((int64_t)c_a1 * y1R) - ((int64_t)c_a2 * y2R)) >> 24);
+                y0R -= (y0R >> 9);
+                if (UNLIKELY(y0R > 262143)) y0R = 262143; else if (UNLIKELY(y0R < -262143)) y0R = -262143;
+                x2R = x1R; x1R = x0R; y2R = y1R; y1R = y0R;
+                busR[i] = x0R + (((y0R - x0R) * mix) >> 8);
+            }
+        }
+
+        es[0] = x1L; es[1] = x2L; es[2] = y1L; es[3] = y2L;
+        es[4] = x1R; es[5] = x2R; es[6] = y1R; es[7] = y2R;
+    }
+#else
+    static void DSP_HammondLeslie(int32_t* mixBuffer, int numSamples, int16_t* dp) {
+        #define ROTARY_DELAY_SIZE 1024
+        #define ROTARY_DELAY_MASK (ROTARY_DELAY_SIZE - 1)
+        #define CMB1_SIZE 487
+        #define CMB2_SIZE 577
+        #define CMB3_SIZE 613
+        #define AP1_SIZE  191
+
+        static int32_t* rotaryDelayLine = nullptr;
+        static int32_t* cmb1_buf = nullptr; static int32_t* cmb2_buf = nullptr;
+        static int32_t* cmb3_buf = nullptr; static int32_t* ap1_buf = nullptr;
+        static bool     allocAttempted = false;
+        static uint16_t rotaryWriteIdx=0, cmb1_idx=0, cmb2_idx=0, cmb3_idx=0, ap1_idx=0;
+        static int32_t currentHornSpeed=0, currentDrumSpeed=0, crossoverLPState=0, dc_estimate=0, currentRevMix=0;
+        static uint32_t hornLFO=0, drumLFO=0;
+
+        if (!allocAttempted) {
+            allocAttempted = true;
+            rotaryDelayLine = (int32_t*)heap_caps_calloc(ROTARY_DELAY_SIZE, sizeof(int32_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+            cmb1_buf = (int32_t*)heap_caps_calloc(CMB1_SIZE, sizeof(int32_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+            cmb2_buf = (int32_t*)heap_caps_calloc(CMB2_SIZE, sizeof(int32_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+            cmb3_buf = (int32_t*)heap_caps_calloc(CMB3_SIZE, sizeof(int32_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+            ap1_buf  = (int32_t*)heap_caps_calloc(AP1_SIZE, sizeof(int32_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        }
+        if (!rotaryDelayLine || !cmb1_buf || !cmb2_buf || !cmb3_buf || !ap1_buf) return;
+
+        int speedState = dp[0];
+        int32_t targetHornSpeed = (speedState == 2) ? 690 : (speedState == 1) ? 80 : 0;
+        int32_t targetDrumSpeed = (speedState == 2) ? 570 : (speedState == 1) ? 70 : 0;
+        int32_t targetReverb = dp[1] > 0 ? dp[1] : 140;
+
+        if (currentHornSpeed < targetHornSpeed) { currentHornSpeed += 12; if (currentHornSpeed > targetHornSpeed) currentHornSpeed = targetHornSpeed; }
+        else if (currentHornSpeed > targetHornSpeed) { if (currentHornSpeed >= 6) currentHornSpeed -= 6; else currentHornSpeed = targetHornSpeed; }
+
+        if (currentDrumSpeed < targetDrumSpeed) { currentDrumSpeed += 3; if (currentDrumSpeed > targetDrumSpeed) currentDrumSpeed = targetDrumSpeed; }
+        else if (currentDrumSpeed > targetDrumSpeed) { if (currentDrumSpeed >= 1) currentDrumSpeed -= 1; else currentDrumSpeed = targetDrumSpeed; }
+
+        if (currentRevMix < targetReverb) { currentRevMix += 2; if (currentRevMix > targetReverb) currentRevMix = targetReverb; }
+        else if (currentRevMix > targetReverb) { currentRevMix -= 2; if (currentRevMix < targetReverb) currentRevMix = targetReverb; }
+
+        int32_t tremDepthHorn = (speedState == 2) ? 80 : (speedState == 1) ? 40 : 0;
+        int32_t tremDepthDrum = (speedState == 2) ? 60 : (speedState == 1) ? 30 : 0;
+
+        uint32_t hornInc = (uint32_t)(((uint64_t)currentHornSpeed * 4294967296ULL) / 4800000ULL);
+        uint32_t drumInc = (uint32_t)(((uint64_t)currentDrumSpeed * 4294967296ULL) / 4800000ULL);
+
         for (int i = 0; i < numSamples; i++) {
             int32_t sample = mixBuffer[i];
-            
-            dc_estimate += (sample - dc_estimate) >> 9; sample -= dc_estimate;                      
-
+            dc_estimate += (sample - dc_estimate) >> 9; sample -= dc_estimate;
             crossoverLPState += (sample - crossoverLPState) >> 3;
             int32_t bass_sample = crossoverLPState;
             int32_t treble_sample = sample - crossoverLPState;
@@ -752,33 +1164,33 @@ public:
             rotaryDelayLine[rotaryWriteIdx] = treble_sample;
 
             int16_t lfoSin = sineLUT[hornLFO >> SINE_SHIFT];
-            int32_t delayOffsetFixed = 23040 + ((lfoSin * 15) >> 6); 
+            int32_t delayOffsetFixed = 23040 + ((lfoSin * 15) >> 6);
             int32_t rIdx1 = (rotaryWriteIdx - (delayOffsetFixed >> 8)) & ROTARY_DELAY_MASK;
             int32_t s1 = rotaryDelayLine[rIdx1];
-            int32_t delayedTreble = s1 + (((rotaryDelayLine[(rIdx1 - 1) & ROTARY_DELAY_MASK] - s1) * (delayOffsetFixed & 0xFF)) >> 8); 
+            int32_t delayedTreble = s1 + (((rotaryDelayLine[(rIdx1 - 1) & ROTARY_DELAY_MASK] - s1) * (delayOffsetFixed & 0xFF)) >> 8);
 
             treble_sample = (delayedTreble * (256 + ((sineLUT[(hornLFO + (1UL << 30)) >> SINE_SHIFT] * tremDepthHorn) >> 15))) >> 8;
             bass_sample = (bass_sample * (256 + ((sineLUT[(drumLFO + (1UL << 30)) >> SINE_SHIFT] * tremDepthDrum) >> 15))) >> 8;
 
             int32_t drySample = bass_sample + treble_sample;
-            int32_t reverbInput = drySample >> 1; 
+            int32_t reverbInput = drySample >> 1;
 
-            int32_t c1_out = cmb1_buf[cmb1_idx]; static int32_t c1_damp = 0; c1_damp += (c1_out - c1_damp) >> 2; 
+            int32_t c1_out = cmb1_buf[cmb1_idx]; static int32_t c1_damp = 0; c1_damp += (c1_out - c1_damp) >> 2;
             cmb1_buf[cmb1_idx] = reverbInput + ((c1_damp * 228) >> 8); if (++cmb1_idx >= CMB1_SIZE) cmb1_idx = 0;
-            
-            int32_t c2_out = cmb2_buf[cmb2_idx]; static int32_t c2_damp = 0; c2_damp += (c2_out - c2_damp) >> 2; 
+
+            int32_t c2_out = cmb2_buf[cmb2_idx]; static int32_t c2_damp = 0; c2_damp += (c2_out - c2_damp) >> 2;
             cmb2_buf[cmb2_idx] = reverbInput + ((c2_damp * 223) >> 8); if (++cmb2_idx >= CMB2_SIZE) cmb2_idx = 0;
-            
-            int32_t c3_out = cmb3_buf[cmb3_idx]; static int32_t c3_damp = 0; c3_damp += (c3_out - c3_damp) >> 2; 
+
+            int32_t c3_out = cmb3_buf[cmb3_idx]; static int32_t c3_damp = 0; c3_damp += (c3_out - c3_damp) >> 2;
             cmb3_buf[cmb3_idx] = reverbInput + ((c3_damp * 218) >> 8); if (++cmb3_idx >= CMB3_SIZE) cmb3_idx = 0;
-            
+
             int32_t ap_out_delay = ap1_buf[ap1_idx];
             int32_t ap_val = (((c1_out + c2_out + c3_out) * 21845) >> 16) + ((ap_out_delay * 130) >> 8);
             ap1_buf[ap1_idx] = ap_val;
             if (++ap1_idx >= AP1_SIZE) ap1_idx = 0;
-            
+
             static int32_t wet_lpf = 0;
-            wet_lpf += ((ap_out_delay - ((ap_val * 130) >> 8)) - wet_lpf) >> 1; 
+            wet_lpf += ((ap_out_delay - ((ap_val * 130) >> 8)) - wet_lpf) >> 1;
 
             mixBuffer[i] = drySample + ((wet_lpf * currentRevMix) >> 8);
 
@@ -795,75 +1207,58 @@ public:
 
         static int32_t* chorus_buffer = nullptr;
         static int16_t* delay_buffer  = nullptr;
+        static bool     initAttempted = false;
         static uint32_t chorus_idx=0, chorus_lfo=0, delay_idx=0;
         static int32_t body_lp=0, comp_env=0, dist_hp=0, cab_lp1=0, cab_lp2=0, cab_lp3=0;
-        
-        if (chorus_buffer == nullptr) {
+
+        if (!initAttempted) {
+            initAttempted = true;
             chorus_buffer = (int32_t*)heap_caps_calloc(CHORUS_SIZE, sizeof(int32_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
             delay_buffer  = (int16_t*)heap_caps_calloc(DELAY_SIZE, sizeof(int16_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-            if (!chorus_buffer || !delay_buffer) return;
         }
-        
+
         bool pedal_distortion = (dp[0] > 0);
-        bool pedal_chorus     = (dp[1] > 0);
-        bool pedal_delay      = (dp[2] > 0);
+        bool pedal_chorus     = (dp[1] > 0) && (chorus_buffer != nullptr);
+        bool pedal_delay      = (dp[2] > 0) && (delay_buffer != nullptr);
 
         for (int i = 0; i < numSamples; i++) {
             int32_t smp = mixBuffer[i];
 
             if (!pedal_distortion) {
-                body_lp += ((smp - body_lp) * 12) >> 8; smp += body_lp; 
+                body_lp += ((smp - body_lp) * 12) >> 8; smp += body_lp;
             } else {
                 int32_t mask = smp >> 31; int32_t rect = (smp ^ mask) - mask;
-                comp_env += ((rect - comp_env) * (rect > comp_env ? 10 : 1)) >> 8;  
-                int32_t gain = 256; 
+                comp_env += ((rect - comp_env) * (rect > comp_env ? 10 : 1)) >> 8;
+                int32_t gain = 256;
                 if (comp_env > 2000) { gain = 256 - ((comp_env - 2000) >> 5); if (gain < 64) gain = 64; }
-                
-                dist_hp += ((((smp * gain) >> 8) * 4) - dist_hp) * 8 >> 8; 
-                int32_t driven = (((smp * gain) >> 8) * 4 - dist_hp) * 14; 
+
+                dist_hp += ((((smp * gain) >> 8) * 4) - dist_hp) * 8 >> 8;
+                int32_t driven = (((smp * gain) >> 8) * 4 - dist_hp) * 14;
 
                 if (driven > 16000) driven = 16000 + ((driven - 16000) >> 2);
                 else if (driven < -12000) driven = -12000 + ((driven + 12000) >> 2);
-                
+
                 cab_lp1 += ((driven - cab_lp1) * 110) >> 8; cab_lp2 += ((cab_lp1 - cab_lp2) * 110) >> 8; cab_lp3 += ((cab_lp2 - cab_lp3) * 110) >> 8;
-                smp = cab_lp3; 
+                smp = cab_lp3;
             }
 
             if (pedal_chorus) {
-                chorus_buffer[chorus_idx] = smp; chorus_lfo += 60000; 
-                smp = (smp + chorus_buffer[(chorus_idx - (480 + ((sineLUT[(chorus_lfo >> SINE_SHIFT) & SINE_LUT_MASK] * 200) >> 15))) & CHORUS_MASK]) >> 1; 
+                chorus_buffer[chorus_idx] = smp; chorus_lfo += 60000;
+                smp = (smp + chorus_buffer[(chorus_idx - (480 + ((sineLUT[(chorus_lfo >> SINE_SHIFT) & SINE_LUT_MASK] * 200) >> 15))) & CHORUS_MASK]) >> 1;
                 chorus_idx = (chorus_idx + 1) & CHORUS_MASK;
             }
 
             if (pedal_delay) {
                 int32_t delayed_smp = delay_buffer[delay_idx];
-                smp += (delayed_smp * 102) >> 8; 
-                delay_buffer[delay_idx] = (int16_t)(smp >> 1); 
-            } else {
-                delay_buffer[delay_idx] = 0; 
+                smp += (delayed_smp * 102) >> 8;
+                delay_buffer[delay_idx] = (int16_t)(smp >> 1);
+                delay_idx = (delay_idx + 1) & DELAY_MASK;
             }
-            delay_idx = (delay_idx + 1) & DELAY_MASK;
 
             mixBuffer[i] = (smp * 180) >> 8;
         }
     }
 
-    // ====================================================================================
-    // PRE-MADE CUSTOM EFFECTS (Custom FX Hooks)
-    // ====================================================================================
-
-    // ====================================================================================
-    // MODULAR CFX: PURE BIQUAD TDF-II FILTER
-    // ====================================================================================
-    // Pure bus filter slot. Zero oscillators, pure in-place audio filtering.
-    //
-    // ep[0]: Cutoff / Center Frequency (Hz) [20 to 20000]
-    // ep[1]: Filter Mode (0 = LPF, 1 = HPF, 2 = BPF, 3 = Notch)
-    // ep[2]: Resonance (Q * 100) OR Bandwidth in Hz
-    // ep[3]: Unit Mode:
-    //        0 = Standard Q mode (ep[2] is Q * 100, ex: 70 = 0.707, 100 = 1.0, 450 = 4.5)
-    //        1 = Bandwidth in Hz mode (ep[2] is BW in Hz, ex: 60 = 60Hz, 200 = 200Hz)
-    // ep[4]: Dry/Wet Mix (0 or 255 = 100% Wet, 1 to 254 = Dry/Wet blend)
     static void FX_BiquadFilter(int32_t* busBuffer, int samples, int16_t* ep, int32_t* es) {
         int32_t fc = ep[0];
         if (fc < 20) fc = 20;
@@ -990,19 +1385,7 @@ public:
         *(int64_t*)&es[0] = s1;
         *(int64_t*)&es[2] = s2;
     }
-    
-    // ====================================================================================
-    // MODULAR CFX: FAST BIQUAD FILTER (Direct Form I - Ultra Low CPU)
-    // ====================================================================================
-    // Fast bus filter slot based on Direct Form I topology for maximum CPU efficiency.
-    //
-    // ep[0]: Cutoff / Center Frequency (Hz) [20 to 20000]
-    // ep[1]: Filter Mode (0 = LPF, 1 = HPF, 2 = BPF, 3 = Notch)
-    // ep[2]: Resonance (Q * 100) OR Bandwidth in Hz
-    // ep[3]: Unit Mode:
-    //        0 = Standard Q mode (ep[2] is Q * 100, ex: 70 = 0.7, 100 = 1.0, 450 = 4.5)
-    //        1 = Bandwidth in Hz mode (ep[2] is BW in Hz, ex: 50 = 50Hz, 200 = 200Hz)
-    // ep[4]: Dry/Wet Mix (0 or 255 = 100% Wet, 1 to 254 = Dry/Wet blend)
+
     static void FX_BiquadFilterFast(int32_t* busBuffer, int samples, int16_t* ep, int32_t* es) {
         int32_t fc = ep[0];
         if (fc < 20) fc = 20;
@@ -1101,4 +1484,5 @@ public:
         es[2] = y1;
         es[3] = y2;
     }
+#endif
 };

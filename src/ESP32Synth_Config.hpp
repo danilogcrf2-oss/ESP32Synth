@@ -35,9 +35,9 @@
 */
 
 // /* // Default:
-#define MAX_VOICES      80   // Max simultaneous voices. (CPU/RAM limited, see note above).
-#define MAX_WAVETABLES  20   // Default 20
-#define MAX_SAMPLES     20   // Default 20
+#define MAX_VOICES      80  // Max simultaneous voices. (CPU/RAM limited, see note above).
+#define MAX_WAVETABLES  20  // Default 20
+#define MAX_SAMPLES     20  // Default 20
 #define MAX_ARP_NOTES   16   // Default 16
 #define MAX_STREAMS      4   // Max concurrent SD streams (RAM/CPU limited).
 #define STREAM_BUF_SAMPLES 4096 // Ring buffer size (Must be power of 2).
@@ -73,6 +73,26 @@
 
 /*
   ====================================================================================
+   AUDIO CHANNEL MODE (MONO CLASSIC vs TRUE STEREO)
+   0 = Classic Mono (Maximum polyphony, minimum RAM, zero stereo overhead)
+   1 = True Stereo  (Full L/R panning, stereo buses/FX, stereo streams & recording)
+   Note: Stereo streams double StreamTrack ring buffer RAM (4096 frames = 16KB/stream).
+  ====================================================================================
+*/
+#ifndef SYNTH_STEREO
+#define SYNTH_STEREO 1
+#endif
+
+// Default Pan Law for Mono Voices in Stereo Mode:
+// 0 = Constant Power (-3 dB center via sineLUT)
+// 1 = Linear (-6 dB center)
+// 2 = Balance (0 dB center, matches Classic Mono volume)
+#ifndef SYNTH_PAN_LAW
+#define SYNTH_PAN_LAW 0
+#endif
+
+/*
+  ====================================================================================
    MODULAR FX ROUTING & BUSES
   ====================================================================================
 */
@@ -81,7 +101,23 @@
 #endif
 
 #ifndef MAX_FX_PER_BUS
-#define MAX_FX_PER_BUS    3  // Max effect slots chained per bus
+#define MAX_FX_PER_BUS    4  // Max effect slots chained per bus
+#endif
+
+#ifndef SYNTH_DELAY_MAX_MS
+    #if defined(CONFIG_IDF_TARGET_ESP32)
+    #define SYNTH_DELAY_MAX_MS 350
+    #else
+    #define SYNTH_DELAY_MAX_MS 500
+    #endif
+#endif
+
+#ifndef MAX_LFOS
+#define MAX_LFOS          16
+#endif
+
+#ifndef MAX_LFO_ROUTES
+#define MAX_LFO_ROUTES    32
 #endif
 
 #ifndef SYNTH_FX_PARAMS
@@ -89,7 +125,11 @@
 #endif
 
 #ifndef SYNTH_FX_STATES
-#define SYNTH_FX_STATES   6  // Effect States array size (es)
+    #if SYNTH_STEREO
+    #define SYNTH_FX_STATES 8
+    #else
+    #define SYNTH_FX_STATES 6
+    #endif
 #endif
 
 // --- SD Recording Buffer ---

@@ -5,27 +5,34 @@
 #include "esp_intr_alloc.h"
 
 // Hardware Register Mapping for Classic ESP32, S-Series, and P4/C-Series
+// Hardware Register Mapping for Classic ESP32, S-Series, and P4/C-Series
 #if defined(CONFIG_IDF_TARGET_ESP32)
-    #define SYNTH_PWM_MODE               LEDC_HIGH_SPEED_MODE
-    #define SYNTH_LEDC_TIMER_OVF_INT_ST  LEDC_HSTIMER0_OVF_INT_ST
-    #define SYNTH_LEDC_TIMER_OVF_INT_CLR LEDC_HSTIMER0_OVF_INT_CLR
-    #define SYNTH_LEDC_TIMER_OVF_INT_ENA LEDC_HSTIMER0_OVF_INT_ENA
-    #define SYNTH_LEDC_CH_DUTY_REG       LEDC_HSCH0_DUTY_REG
-    #define SYNTH_LEDC_CH_LATCH()        REG_WRITE(LEDC_HSCH0_CONF1_REG, REG_READ(LEDC_HSCH0_CONF1_REG) | (1U << 31))
+    #define SYNTH_PWM_MODE                LEDC_HIGH_SPEED_MODE
+    #define SYNTH_LEDC_TIMER_OVF_INT_ST   LEDC_HSTIMER0_OVF_INT_ST
+    #define SYNTH_LEDC_TIMER_OVF_INT_CLR  LEDC_HSTIMER0_OVF_INT_CLR
+    #define SYNTH_LEDC_TIMER_OVF_INT_ENA  LEDC_HSTIMER0_OVF_INT_ENA
+    #define SYNTH_LEDC_CH0_DUTY_REG       LEDC_HSCH0_DUTY_REG
+    #define SYNTH_LEDC_CH1_DUTY_REG       LEDC_HSCH1_DUTY_REG
+    #define SYNTH_LEDC_CH0_LATCH()        REG_WRITE(LEDC_HSCH0_CONF1_REG, REG_READ(LEDC_HSCH0_CONF1_REG) | (1U << 31))
+    #define SYNTH_LEDC_CH1_LATCH()        REG_WRITE(LEDC_HSCH1_CONF1_REG, REG_READ(LEDC_HSCH1_CONF1_REG) | (1U << 31))
 #elif defined(CONFIG_IDF_TARGET_ESP32S3) || defined(CONFIG_IDF_TARGET_ESP32S2)
-    #define SYNTH_PWM_MODE               LEDC_LOW_SPEED_MODE
-    #define SYNTH_LEDC_TIMER_OVF_INT_ST  LEDC_LSTIMER0_OVF_INT_ST
-    #define SYNTH_LEDC_TIMER_OVF_INT_CLR LEDC_LSTIMER0_OVF_INT_CLR
-    #define SYNTH_LEDC_TIMER_OVF_INT_ENA LEDC_LSTIMER0_OVF_INT_ENA
-    #define SYNTH_LEDC_CH_DUTY_REG       LEDC_LSCH0_DUTY_REG
-    #define SYNTH_LEDC_CH_LATCH()        REG_WRITE(LEDC_LSCH0_CONF0_REG, REG_READ(LEDC_LSCH0_CONF0_REG) | 0x10)
-#else // ESP32-P4 and unified architectures
-    #define SYNTH_PWM_MODE               LEDC_LOW_SPEED_MODE
-    #define SYNTH_LEDC_TIMER_OVF_INT_ST  LEDC_TIMER0_OVF_INT_ST
-    #define SYNTH_LEDC_TIMER_OVF_INT_CLR LEDC_TIMER0_OVF_INT_CLR
-    #define SYNTH_LEDC_TIMER_OVF_INT_ENA LEDC_TIMER0_OVF_INT_ENA
-    #define SYNTH_LEDC_CH_DUTY_REG       LEDC_CH0_DUTY_REG
-    #define SYNTH_LEDC_CH_LATCH()        REG_WRITE(LEDC_CH0_CONF0_REG, REG_READ(LEDC_CH0_CONF0_REG) | 0x10)
+    #define SYNTH_PWM_MODE                LEDC_LOW_SPEED_MODE
+    #define SYNTH_LEDC_TIMER_OVF_INT_ST   LEDC_LSTIMER0_OVF_INT_ST
+    #define SYNTH_LEDC_TIMER_OVF_INT_CLR  LEDC_LSTIMER0_OVF_INT_CLR
+    #define SYNTH_LEDC_TIMER_OVF_INT_ENA  LEDC_LSTIMER0_OVF_INT_ENA
+    #define SYNTH_LEDC_CH0_DUTY_REG       LEDC_LSCH0_DUTY_REG
+    #define SYNTH_LEDC_CH1_DUTY_REG       LEDC_LSCH1_DUTY_REG
+    #define SYNTH_LEDC_CH0_LATCH()        REG_WRITE(LEDC_LSCH0_CONF0_REG, REG_READ(LEDC_LSCH0_CONF0_REG) | 0x10)
+    #define SYNTH_LEDC_CH1_LATCH()        REG_WRITE(LEDC_LSCH1_CONF0_REG, REG_READ(LEDC_LSCH1_CONF0_REG) | 0x10)
+#else
+    #define SYNTH_PWM_MODE                LEDC_LOW_SPEED_MODE
+    #define SYNTH_LEDC_TIMER_OVF_INT_ST   LEDC_TIMER0_OVF_INT_ST
+    #define SYNTH_LEDC_TIMER_OVF_INT_CLR  LEDC_TIMER0_OVF_INT_CLR
+    #define SYNTH_LEDC_TIMER_OVF_INT_ENA  LEDC_TIMER0_OVF_INT_ENA
+    #define SYNTH_LEDC_CH0_DUTY_REG       LEDC_CH0_DUTY_REG
+    #define SYNTH_LEDC_CH1_DUTY_REG       LEDC_CH1_DUTY_REG
+    #define SYNTH_LEDC_CH0_LATCH()        REG_WRITE(LEDC_CH0_CONF0_REG, REG_READ(LEDC_CH0_CONF0_REG) | 0x10)
+    #define SYNTH_LEDC_CH1_LATCH()        REG_WRITE(LEDC_CH1_CONF0_REG, REG_READ(LEDC_CH1_CONF0_REG) | 0x10)
 #endif
 
 #ifndef LIKELY
@@ -35,37 +42,61 @@
 // Auto-Synchronized ISR: Triggered by the hardware PWM's own heartbeat pulse
 static IRAM_ATTR void ledc_ovf_isr(void *user_ctx) {
     ESP32Synth* synth = (ESP32Synth*)user_ctx;
-    uint32_t int_st = REG_READ(LEDC_INT_ST_REG); 
+    uint32_t int_st = REG_READ(LEDC_INT_ST_REG);
     bool handled = false;
 
     if (int_st & SYNTH_LEDC_TIMER_OVF_INT_ST) {
-        REG_WRITE(LEDC_INT_CLR_REG, SYNTH_LEDC_TIMER_OVF_INT_CLR); // MUST clear the flag
+        REG_WRITE(LEDC_INT_CLR_REG, SYNTH_LEDC_TIMER_OVF_INT_CLR);
         handled = true;
 
         if (synth->_running && synth->pwm_ping_pong_buf[synth->pwm_active_buf]) {
             int idx = synth->pwm_read_idx;
-            synth->pwm_read_idx = idx + 1; // Avoids 'volatile ++' compiler warning
+            synth->pwm_read_idx = idx + 1;
 
             if (LIKELY(synth->pwm_state == PWM_STATE_ACTIVE)) {
-                int16_t sample = synth->pwm_ping_pong_buf[synth->pwm_active_buf][idx];
-                uint32_t duty_val = ((uint32_t)(sample + 32768) >> 6) << 4; // Exact 10-bit duty
-                REG_WRITE(SYNTH_LEDC_CH_DUTY_REG, duty_val);
-                SYNTH_LEDC_CH_LATCH();
+#if SYNTH_STEREO
+                if (synth->pwm_is_stereo) {
+                    int16_t sL = synth->pwm_ping_pong_buf[synth->pwm_active_buf][idx * 2];
+                    int16_t sR = synth->pwm_ping_pong_buf[synth->pwm_active_buf][idx * 2 + 1];
+                    REG_WRITE(SYNTH_LEDC_CH0_DUTY_REG, ((uint32_t)(sL + 32768) >> 6) << 4);
+                    REG_WRITE(SYNTH_LEDC_CH1_DUTY_REG, ((uint32_t)(sR + 32768) >> 6) << 4);
+                    SYNTH_LEDC_CH0_LATCH();
+                    SYNTH_LEDC_CH1_LATCH();
+                } else
+#endif
+                {
+                    int16_t sample = synth->pwm_ping_pong_buf[synth->pwm_active_buf][idx];
+                    uint32_t duty_val = ((uint32_t)(sample + 32768) >> 6) << 4;
+                    REG_WRITE(SYNTH_LEDC_CH0_DUTY_REG, duty_val);
+                    SYNTH_LEDC_CH0_LATCH();
+                }
             } else if (synth->pwm_state == PWM_STATE_MUTED) {
-                REG_WRITE(SYNTH_LEDC_CH_DUTY_REG, 0);
-                SYNTH_LEDC_CH_LATCH();
+                REG_WRITE(SYNTH_LEDC_CH0_DUTY_REG, 0);
+                SYNTH_LEDC_CH0_LATCH();
+#if SYNTH_STEREO
+                if (synth->pwm_is_stereo) {
+                    REG_WRITE(SYNTH_LEDC_CH1_DUTY_REG, 0);
+                    SYNTH_LEDC_CH1_LATCH();
+                }
+#endif
             } else if (synth->pwm_state == PWM_STATE_RAMP_UP) {
                 synth->pwm_ramp_phase += synth->pwm_ramp_inc;
                 if (synth->pwm_ramp_phase >= 0x80000000UL) {
                     synth->pwm_ramp_phase = 0x80000000UL;
                     synth->pwm_state = PWM_STATE_ACTIVE;
                 }
-                // S-curve interpolation via sineLUT: maps 3072 (-32767) to 5120 (+32767)
                 uint32_t lut_idx = (3072 + (synth->pwm_ramp_phase >> 20)) & SINE_LUT_MASK;
                 uint32_t duty_10bit = (uint32_t)(sineLUT[lut_idx] + 32768) >> 7;
                 if (duty_10bit > 512) duty_10bit = 512;
-                REG_WRITE(SYNTH_LEDC_CH_DUTY_REG, duty_10bit << 4);
-                SYNTH_LEDC_CH_LATCH();
+                uint32_t duty_val = duty_10bit << 4;
+                REG_WRITE(SYNTH_LEDC_CH0_DUTY_REG, duty_val);
+                SYNTH_LEDC_CH0_LATCH();
+#if SYNTH_STEREO
+                if (synth->pwm_is_stereo) {
+                    REG_WRITE(SYNTH_LEDC_CH1_DUTY_REG, duty_val);
+                    SYNTH_LEDC_CH1_LATCH();
+                }
+#endif
             } else if (synth->pwm_state == PWM_STATE_RAMP_DOWN) {
                 if (synth->pwm_ramp_phase <= synth->pwm_ramp_inc) {
                     synth->pwm_ramp_phase = 0;
@@ -76,19 +107,25 @@ static IRAM_ATTR void ledc_ovf_isr(void *user_ctx) {
                 uint32_t lut_idx = (3072 + (synth->pwm_ramp_phase >> 20)) & SINE_LUT_MASK;
                 uint32_t duty_10bit = (uint32_t)(sineLUT[lut_idx] + 32768) >> 7;
                 if (duty_10bit > 512) duty_10bit = 512;
-                REG_WRITE(SYNTH_LEDC_CH_DUTY_REG, duty_10bit << 4);
-                SYNTH_LEDC_CH_LATCH();
+                uint32_t duty_val = duty_10bit << 4;
+                REG_WRITE(SYNTH_LEDC_CH0_DUTY_REG, duty_val);
+                SYNTH_LEDC_CH0_LATCH();
+#if SYNTH_STEREO
+                if (synth->pwm_is_stereo) {
+                    REG_WRITE(SYNTH_LEDC_CH1_DUTY_REG, duty_val);
+                    SYNTH_LEDC_CH1_LATCH();
+                }
+#endif
             }
         }
     }
 
-    // If the buffer is exhausted, request more from the Render Task!
     if (handled && synth->_running && synth->pwm_block_samples > 0 && synth->pwm_read_idx >= synth->pwm_block_samples) {
         synth->pwm_read_idx = 0;
         synth->pwm_active_buf = 1 - synth->pwm_active_buf;
         BaseType_t awoken = pdFALSE;
         xSemaphoreGiveFromISR(synth->pwm_sema, &awoken);
-        if (awoken == pdTRUE) portYIELD_FROM_ISR(); // Wake the processor immediately
+        if (awoken == pdTRUE) portYIELD_FROM_ISR();
     }
 }
 
@@ -128,6 +165,10 @@ void ESP32Synth::end() {
             #endif
             SYNTH_FILE_CLOSE(streams[i].file);
         }
+        if (streams[i].buffer) {
+            heap_caps_free(streams[i].buffer);
+            streams[i].buffer = nullptr;
+        }
     }
 
     if (tx_handle != NULL) {
@@ -156,17 +197,28 @@ void ESP32Synth::end() {
     }
     if (pwm_ping_pong_buf[0]) { heap_caps_free(pwm_ping_pong_buf[0]); pwm_ping_pong_buf[0] = nullptr; }
     if (pwm_ping_pong_buf[1]) { heap_caps_free(pwm_ping_pong_buf[1]); pwm_ping_pong_buf[1] = nullptr; }
+    pwm_state = PWM_STATE_ACTIVE;
+#if SYNTH_STEREO
+    pwm_is_stereo = false;
+    freePullBuffers();
+#endif
+    clearAllBusFXBuffers();
 
     if (_dataPin >= 0) gpio_reset_pin((gpio_num_t)_dataPin);
     if (_bckPin  >= 0) gpio_reset_pin((gpio_num_t)_bckPin);
     if (_wsPin   >= 0) gpio_reset_pin((gpio_num_t)_wsPin);
     if (_mclkPin >= 0) gpio_reset_pin((gpio_num_t)_mclkPin);
+    if (_pinR    >= 0) gpio_reset_pin((gpio_num_t)_pinR);
 
-    _dataPin = -1; _bckPin = -1; _wsPin = -1; _mclkPin = -1;
+    _dataPin = -1; _bckPin = -1; _wsPin = -1; _mclkPin = -1; _pinR = -1;
 }
 
 bool ESP32Synth::begin(int dacPin) {
     return begin(dacPin, SMODE_DAC, -1, -1, -1, I2S_16BIT);
+}
+
+bool ESP32Synth::begin(int dacPinL, int dacPinR) {
+    return begin(dacPinL, SMODE_DAC, -1, dacPinR, -1, I2S_16BIT);
 }
 
 bool ESP32Synth::begin(int bckPin, int wsPin, int dataPin) {
@@ -185,6 +237,18 @@ bool ESP32Synth::begin(int dataPin, SynthOutputMode mode, int clkPin, int wsPin,
     return begin(dataPin, mode, clkPin, wsPin, -1, i2sDepth);
 }
 
+bool ESP32Synth::beginDAC(int pinL, int pinR) {
+    return begin(pinL, SMODE_DAC, -1, pinR, -1, I2S_16BIT);
+}
+
+bool ESP32Synth::beginPWM(int pinL, int pinR) {
+    return begin(pinL, SMODE_PWM, -1, pinR, -1, I2S_16BIT);
+}
+
+bool ESP32Synth::beginPDM_DAC(int pinL, int pinR) {
+    return begin(pinL, SMODE_PDM, -1, pinR, -1, I2S_16BIT);
+}
+
 bool ESP32Synth::begin(int dataPin, SynthOutputMode mode, int clkPin, int wsPin, int mclkPin, I2S_Depth i2sDepth) {
     end();
 
@@ -192,8 +256,9 @@ bool ESP32Synth::begin(int dataPin, SynthOutputMode mode, int clkPin, int wsPin,
     this->_i2sDepth   = i2sDepth;
     this->_dataPin    = dataPin;
     this->_bckPin     = clkPin;
-    this->_wsPin      = wsPin;
+    this->_wsPin      = (mode == SMODE_I2S) ? wsPin : -1;
     this->_mclkPin    = mclkPin;
+    this->_pinR       = (mode == SMODE_DAC || mode == SMODE_PWM || mode == SMODE_PDM) ? wsPin : -1;
 
     if (mode == SMODE_DAC) {
         _sampleRate       = 48000;
@@ -206,7 +271,6 @@ bool ESP32Synth::begin(int dataPin, SynthOutputMode mode, int clkPin, int wsPin,
         #endif
         _customSampleRate = false;
     } else if (mode == SMODE_PWM) {
-        // GOLDEN MATH: Absolute Phase-Lock!
         _sampleRate       = 47962;
         _customSampleRate = false;
     } else if (!_customSampleRate) {
@@ -218,27 +282,38 @@ bool ESP32Synth::begin(int dataPin, SynthOutputMode mode, int clkPin, int wsPin,
     for (int i = 0; i < SINE_LUT_SIZE; i++) {
         sineLUT[i] = (int16_t)(sin(i * 2.0 * PI / (double)SINE_LUT_SIZE) * 32767.0);
     }
-    sineLUT[SINE_LUT_SIZE] = sineLUT[0]; // Guard sample for seamless branchless LERP
+    sineLUT[SINE_LUT_SIZE] = sineLUT[0];
 
     if (mode == SMODE_DAC) {
         #if !defined(CONFIG_IDF_TARGET_ESP32) && !defined(CONFIG_IDF_TARGET_ESP32S2)
         return false;
         #else
-        // Dynamic mask detection based on target chip analog layout
-        #if defined(CONFIG_IDF_TARGET_ESP32)
-        dac_channel_mask_t mask = (dataPin == 26) ? DAC_CHANNEL_MASK_CH1 : DAC_CHANNEL_MASK_CH0;
-        #else // ESP32-S2
-        dac_channel_mask_t mask = (dataPin == 18) ? DAC_CHANNEL_MASK_CH1 : DAC_CHANNEL_MASK_CH0;
-        #endif
+        dac_channel_mask_t mask;
+        dac_continuous_channel_mode_t chMode = DAC_CHANNEL_MODE_SIMUL;
+        uint32_t dacFreq = _sampleRate * 2;
+
+        if (_pinR >= 0) {
+            mask = DAC_CHANNEL_MASK_ALL;
+            #if SYNTH_STEREO
+            chMode  = DAC_CHANNEL_MODE_ALTER;
+            dacFreq = _sampleRate;
+            #endif
+        } else {
+            #if defined(CONFIG_IDF_TARGET_ESP32)
+            mask = (dataPin == 26) ? DAC_CHANNEL_MASK_CH1 : DAC_CHANNEL_MASK_CH0;
+            #else
+            mask = (dataPin == 18) ? DAC_CHANNEL_MASK_CH1 : DAC_CHANNEL_MASK_CH0;
+            #endif
+        }
 
         dac_continuous_config_t cont_cfg = {
             .chan_mask  = mask,
             .desc_num   = SYNTH_DMA_BUF_COUNT,
             .buf_size   = SYNTH_DMA_BUF_LEN * 2,
-            .freq_hz    = _sampleRate * 2,
+            .freq_hz    = dacFreq,
             .offset     = 0,
             .clk_src    = DAC_DIGI_CLK_SRC_DEFAULT,
-            .chan_mode  = DAC_CHANNEL_MODE_SIMUL,
+            .chan_mode  = chMode,
         };
         if (dac_continuous_new_channels(&cont_cfg, &dac_handle) != ESP_OK) return false;
         if (dac_continuous_enable(dac_handle)                   != ESP_OK) return false;
@@ -255,6 +330,7 @@ bool ESP32Synth::begin(int dataPin, SynthOutputMode mode, int clkPin, int wsPin,
         ledc_timer.clk_cfg               = LEDC_AUTO_CLK;
         #endif
         if (ledc_timer_config(&ledc_timer) != ESP_OK) return false;
+
         ledc_channel_config_t ledc_channel = {};
         ledc_channel.gpio_num              = dataPin;
         ledc_channel.speed_mode            = SYNTH_PWM_MODE;
@@ -265,11 +341,19 @@ bool ESP32Synth::begin(int dataPin, SynthOutputMode mode, int clkPin, int wsPin,
         ledc_channel.hpoint                = 0;
         if (ledc_channel_config(&ledc_channel) != ESP_OK) return false;
 
+#if SYNTH_STEREO
+        if (_pinR >= 0) {
+            ledc_channel.gpio_num = _pinR;
+            ledc_channel.channel  = LEDC_CHANNEL_1;
+            if (ledc_channel_config(&ledc_channel) != ESP_OK) return false;
+            pwm_is_stereo = true;
+        } else {
+            pwm_is_stereo = false;
+        }
+#endif
+
         pwm_sema = xSemaphoreCreateBinary();
-
-        // THE DEFINITIVE SECRET: Goodbye GPTimer! We hook our ISR directly to the LEDC pin.
         esp_intr_alloc(ETS_LEDC_INTR_SOURCE, ESP_INTR_FLAG_IRAM, ledc_ovf_isr, this, (intr_handle_t*)&pwm_timer);
-
         REG_WRITE(LEDC_INT_ENA_REG, REG_READ(LEDC_INT_ENA_REG) | SYNTH_LEDC_TIMER_OVF_INT_ENA);
 
     } else {
@@ -282,12 +366,34 @@ bool ESP32Synth::begin(int dataPin, SynthOutputMode mode, int clkPin, int wsPin,
         if (i2s_new_channel(&chan_cfg, &tx_handle, NULL) != ESP_OK) return false;
 
         if (mode == SMODE_PDM) {
-            i2s_pdm_tx_config_t pdm_cfg = {
-                .clk_cfg  = I2S_PDM_TX_CLK_DEFAULT_CONFIG(_sampleRate),
-                .slot_cfg = I2S_PDM_TX_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO),
-                .gpio_cfg = { .clk = (gpio_num_t)clkPin, .dout = (gpio_num_t)dataPin }
-            };
-            if (i2s_channel_init_pdm_tx_mode(tx_handle, &pdm_cfg) != ESP_OK) return false;
+#if SYNTH_STEREO && defined(SOC_I2S_PDM_MAX_TX_LINES) && (SOC_I2S_PDM_MAX_TX_LINES > 1) && defined(I2S_PDM_TX_SLOT_DAC_DEFAULT_CONFIG)
+            if (clkPin < 0) {
+                i2s_slot_mode_t slotMode = (_pinR >= 0) ? I2S_SLOT_MODE_STEREO : I2S_SLOT_MODE_MONO;
+                i2s_pdm_tx_config_t pdm_cfg = {
+                    .clk_cfg  = I2S_PDM_TX_CLK_DEFAULT_CONFIG(_sampleRate),
+                    .slot_cfg = I2S_PDM_TX_SLOT_DAC_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, slotMode),
+                    .gpio_cfg = {
+                        .clk   = I2S_GPIO_UNUSED,
+                        .dout  = (gpio_num_t)((_pinR >= 0) ? _pinR : dataPin),
+                        .dout2 = (gpio_num_t)((_pinR >= 0) ? dataPin : I2S_GPIO_UNUSED)
+                    }
+                };
+                if (_pinR >= 0) pdm_cfg.slot_cfg.line_mode = I2S_PDM_TX_TWO_LINE_DAC;
+                if (i2s_channel_init_pdm_tx_mode(tx_handle, &pdm_cfg) != ESP_OK) return false;
+            } else
+#endif
+            {
+                i2s_slot_mode_t slotMode = I2S_SLOT_MODE_MONO;
+#if SYNTH_STEREO
+                if (_pinR >= 0) slotMode = I2S_SLOT_MODE_STEREO;
+#endif
+                i2s_pdm_tx_config_t pdm_cfg = {
+                    .clk_cfg  = I2S_PDM_TX_CLK_DEFAULT_CONFIG(_sampleRate),
+                    .slot_cfg = I2S_PDM_TX_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, slotMode),
+                    .gpio_cfg = { .clk = (clkPin >= 0) ? (gpio_num_t)clkPin : I2S_GPIO_UNUSED, .dout = (gpio_num_t)dataPin }
+                };
+                if (i2s_channel_init_pdm_tx_mode(tx_handle, &pdm_cfg) != ESP_OK) return false;
+            }
         } else {
             i2s_data_bit_width_t width = (i2sDepth == I2S_32BIT) ? I2S_DATA_BIT_WIDTH_32BIT : I2S_DATA_BIT_WIDTH_16BIT;
             i2s_std_config_t std_cfg = {
@@ -308,8 +414,6 @@ bool ESP32Synth::begin(int dataPin, SynthOutputMode mode, int clkPin, int wsPin,
 
     this->_running = true;
 
-    // Core 1 on the S3 has less contention from USB CDC or Wi-Fi than Core 0.
-    // With the mathematical Phase-Lock solved, Core 1 is the best place of all.
     if (xTaskCreatePinnedToCore(audioTask, "SynthTask", 4096, this, configMAX_PRIORITIES - 1, &audioTaskHandle, SYNTH_AUDIO_TASK_CORE) != pdPASS) {
         return false;
     }
@@ -324,19 +428,19 @@ bool ESP32Synth::beginCustom(uint32_t sampleRate, SynthCustomOutputCallback cust
     this->_sampleRate       = sampleRate;
     this->_customSampleRate = (sampleRate != 48000);
     this->_customOutput     = customOutput;
+#if SYNTH_STEREO
+    this->_customStereoOutput = nullptr;
+#endif
 
     controlIntervalSamples = (_sampleRate / controlRateHz) ? (_sampleRate / controlRateHz) : 1;
 
     for (int i = 0; i < SINE_LUT_SIZE; i++) {
         sineLUT[i] = (int16_t)(sin(i * 2.0 * PI / (double)SINE_LUT_SIZE) * 32767.0);
     }
-    sineLUT[SINE_LUT_SIZE] = sineLUT[0]; // Guard sample for seamless branchless LERP
+    sineLUT[SINE_LUT_SIZE] = sineLUT[0];
 
     this->_running = true;
 
-    // OPTIMIZATION: If the user provided a callback, the lib takes control and runs
-    // the AudioTask in push mode. If NOT, no task is created — the user pulls data
-    // on demand via generateSamples() (pull mode). Ideal for A2DP / Wi-Fi.
     if (customOutput != nullptr) {
         if (xTaskCreatePinnedToCore(audioTask, "SynthTask", 4096, this, configMAX_PRIORITIES - 1, &audioTaskHandle, SYNTH_AUDIO_TASK_CORE) != pdPASS) {
             return false;
@@ -345,6 +449,35 @@ bool ESP32Synth::beginCustom(uint32_t sampleRate, SynthCustomOutputCallback cust
 
     return true;
 }
+
+#if SYNTH_STEREO
+bool ESP32Synth::beginCustomStereo(uint32_t sampleRate, SynthCustomStereoOutputCallback customOutput) {
+    end();
+
+    this->currentMode         = SMODE_CUSTOM;
+    this->_sampleRate         = sampleRate;
+    this->_customSampleRate   = (sampleRate != 48000);
+    this->_customOutput       = nullptr;
+    this->_customStereoOutput = customOutput;
+
+    controlIntervalSamples = (_sampleRate / controlRateHz) ? (_sampleRate / controlRateHz) : 1;
+
+    for (int i = 0; i < SINE_LUT_SIZE; i++) {
+        sineLUT[i] = (int16_t)(sin(i * 2.0 * PI / (double)SINE_LUT_SIZE) * 32767.0);
+    }
+    sineLUT[SINE_LUT_SIZE] = sineLUT[0];
+
+    this->_running = true;
+
+    if (customOutput != nullptr) {
+        if (xTaskCreatePinnedToCore(audioTask, "SynthTask", 4096, this, configMAX_PRIORITIES - 1, &audioTaskHandle, SYNTH_AUDIO_TASK_CORE) != pdPASS) {
+            return false;
+        }
+    }
+
+    return true;
+}
+#endif
 
 bool ESP32Synth::beginHeadless(uint32_t sampleRate) {
     end();
@@ -358,11 +491,10 @@ bool ESP32Synth::beginHeadless(uint32_t sampleRate) {
     for (int i = 0; i < SINE_LUT_SIZE; i++) {
         sineLUT[i] = (int16_t)(sin(i * 2.0 * PI / (double)SINE_LUT_SIZE) * 32767.0);
     }
-    sineLUT[SINE_LUT_SIZE] = sineLUT[0]; // Guard sample for seamless branchless LERP
+    sineLUT[SINE_LUT_SIZE] = sineLUT[0];
 
     this->_running = true;
 
-    // Inicia a Engine DSP em Core 1
     if (xTaskCreatePinnedToCore(audioTask, "SynthTask", 4096, this, configMAX_PRIORITIES - 1, &audioTaskHandle, SYNTH_AUDIO_TASK_CORE) != pdPASS) {
         return false;
     }

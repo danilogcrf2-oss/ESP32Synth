@@ -149,9 +149,173 @@ enum WaveType : int8_t {
 };
 
 enum FXType : uint8_t {
-    FX_NONE = 0,
-    FX_CUSTOM = 1
-    // Built-in FX types can be added here in the future
+    FX_NONE       = 0,
+    FX_CUSTOM     = 1,
+    FX_OVERDRIVE  = 2,
+    FX_CHORUS     = 3,
+    FX_FLANGER    = 4,
+    FX_PHASER     = 5,
+    FX_DELAY      = 6,
+    FX_REVERB     = 7,
+    FX_FILTER     = 8,
+    FX_COMPRESSOR = 9,
+    FX_BITCRUSHER = 10
+};
+
+enum FXOverdriveMode : uint8_t {
+    FX_OD_SOFT = 0,
+    FX_OD_TUBE = 1,
+    FX_OD_FUZZ = 2
+};
+
+enum FXFilterMode : uint8_t {
+    FX_FILTER_LPF   = 0,
+    FX_FILTER_HPF   = 1,
+    FX_FILTER_BPF   = 2,
+    FX_FILTER_NOTCH = 3
+};
+
+enum FXOverdriveParam : uint8_t {
+    FX_OD_DRIVE = 0,
+    FX_OD_TONE  = 1,
+    FX_OD_LEVEL = 2,
+    FX_OD_MODE  = 3,
+    FX_OD_MIX   = 4
+};
+
+enum FXChorusParam : uint8_t {
+    FX_CHORUS_RATE         = 0,
+    FX_CHORUS_DEPTH        = 1,
+    FX_CHORUS_DELAY_MS     = 2,
+    FX_CHORUS_FEEDBACK     = 3,
+    FX_CHORUS_MIX          = 4,
+    FX_CHORUS_STEREO_PHASE = 5
+};
+
+enum FXFlangerParam : uint8_t {
+    FX_FLANGER_RATE         = 0,
+    FX_FLANGER_DEPTH        = 1,
+    FX_FLANGER_DELAY_MS10   = 2,
+    FX_FLANGER_FEEDBACK     = 3,
+    FX_FLANGER_MIX          = 4,
+    FX_FLANGER_STEREO_PHASE = 5
+};
+
+enum FXPhaserParam : uint8_t {
+    FX_PHASER_RATE         = 0,
+    FX_PHASER_DEPTH        = 1,
+    FX_PHASER_FEEDBACK     = 2,
+    FX_PHASER_STAGES       = 3,
+    FX_PHASER_MIX          = 4,
+    FX_PHASER_STEREO_PHASE = 5
+};
+
+enum FXDelayParam : uint8_t {
+    FX_DELAY_TIME_MS  = 0,
+    FX_DELAY_FEEDBACK = 1,
+    FX_DELAY_DAMP     = 2,
+    FX_DELAY_PINGPONG = 3,
+    FX_DELAY_MIX      = 4
+};
+
+enum FXReverbParam : uint8_t {
+    FX_REVERB_ROOM  = 0,
+    FX_REVERB_DAMP  = 1,
+    FX_REVERB_WIDTH = 2,
+    FX_REVERB_MIX   = 3
+};
+
+enum FXFilterParam : uint8_t {
+    FX_FILTER_CUTOFF    = 0,
+    FX_FILTER_MODE      = 1,
+    FX_FILTER_RESONANCE = 2,
+    FX_FILTER_BW_MODE   = 3,
+    FX_FILTER_MIX       = 4
+};
+
+enum FXCompressorParam : uint8_t {
+    FX_COMP_THRESHOLD  = 0,
+    FX_COMP_RATIO      = 1,
+    FX_COMP_ATTACK_MS  = 2,
+    FX_COMP_RELEASE_MS = 3,
+    FX_COMP_MAKEUP     = 4,
+    FX_COMP_MIX        = 5
+};
+
+enum FXBitcrushParam : uint8_t {
+    FX_CRUSH_BITS       = 0,
+    FX_CRUSH_DOWNSAMPLE = 1,
+    FX_CRUSH_MIX        = 2
+};
+
+enum LFOWave : uint8_t {
+    LFO_SINE          = 0,
+    LFO_TRIANGLE      = 1,
+    LFO_SAW_UP        = 2,
+    LFO_SAW_DOWN      = 3,
+    LFO_SQUARE        = 4,
+    LFO_SAMPLE_HOLD   = 5,
+    LFO_SMOOTH_RANDOM = 6
+};
+
+enum LFOTarget : uint8_t {
+    LFO_TARGET_NONE         = 0,
+    LFO_TARGET_PULSE_WIDTH  = 1,
+    LFO_TARGET_VOICE_CP     = 2,
+    LFO_TARGET_VOICE_PITCH  = 3,
+    LFO_TARGET_VOICE_VOL    = 4,
+    LFO_TARGET_VOICE_PAN    = 5,
+    LFO_TARGET_BUS_FX_PARAM = 6,
+    LFO_TARGET_BUS_MIX      = 7,
+    LFO_TARGET_BUS_PAN      = 8,
+    LFO_TARGET_BUS_WIDTH    = 9,
+    LFO_TARGET_DSP_PARAM    = 10,
+    LFO_TARGET_MASTER_VOL   = 11,
+    LFO_TARGET_MASTER_PAN   = 12,
+    LFO_TARGET_MASTER_WIDTH = 13,
+    LFO_TARGET_LFO_RATE     = 14,
+    LFO_TARGET_LFO_AMP      = 15
+};
+
+typedef void (*SynthLFOCallback)(uint8_t lfoId, int16_t value);
+
+struct ModLFO {
+    uint32_t         phase;
+    uint32_t         rateInc;
+    uint32_t         startPhase;
+    uint32_t         baseRate;
+    uint32_t         effRate;
+    uint32_t         delayTicksCfg;
+    uint32_t         delayTicksRem;
+    uint32_t         fadeGainQ15;
+    uint32_t         fadeStepQ15;
+    uint32_t         rngState;
+    SynthLFOCallback callback;
+    uint16_t         delayMsCfg;
+    uint16_t         fadeInMsCfg;
+    int16_t          curValue;
+    int16_t          curRand;
+    int16_t          nextRand;
+    int16_t          effAmpQ8;
+    LFOWave          wave;
+    uint8_t          duty;
+    bool             oneShot;
+    bool             finished;
+    volatile bool    active;
+};
+
+struct ModLFORoute {
+    int32_t       valA;
+    int32_t       valB;
+    int32_t       lastOffset;
+    uint16_t      targetStart;
+    uint16_t      targetEnd;
+    uint8_t       lfoId;
+    LFOTarget     target;
+    uint8_t       subId;
+    uint8_t       paramIdx;
+    bool          rangeMode;
+    volatile bool active;
 };
 
 enum BitDepth : uint8_t {
@@ -180,6 +344,26 @@ enum LoopMode : uint8_t {
     LOOP_REVERSE
 };
 
+enum PanLaw : uint8_t {
+    PAN_LAW_CONSTANT_POWER = 0,
+    PAN_LAW_LINEAR         = 1,
+    PAN_LAW_BALANCE        = 2
+};
+
+#if SYNTH_STEREO
+enum PanState : uint8_t {
+    PAN_CENTER = 0,
+    PAN_HARD_L = 1,
+    PAN_HARD_R = 2,
+    PAN_STEREO = 3
+};
+
+struct __attribute__((aligned(4))) StereoSample {
+    int16_t l;
+    int16_t r;
+};
+#endif
+
 struct Instrument {
     const uint8_t* seqVolumes;
     const int16_t* seqWaves;
@@ -201,6 +385,7 @@ struct SampleData {
     uint32_t    sampleRate;
     uint32_t    rootFreqCentiHz;
     BitDepth    depth;
+    uint8_t     numChannels;
 };
 extern SampleData registeredSamples[MAX_SAMPLES];
 
@@ -229,7 +414,11 @@ struct FlashMP3Stream {
 
 struct StreamTrack {
     SYNTH_FILE        file;
-    int16_t           buffer[STREAM_BUF_SAMPLES];
+#if SYNTH_STEREO
+    StereoSample*     buffer;
+#else
+    int16_t*          buffer;
+#endif
     volatile uint16_t head;
     volatile uint16_t tail;
     uint32_t          sampleRate;
@@ -245,48 +434,62 @@ struct StreamTrack {
     bool              active;
     volatile bool     playing;
     bool              loop;
-    uint32_t       durationMs;
+    uint32_t          durationMs;
+    volatile bool     seeking;
     #if ENABLE_MP3
-    void*          mp3Decoder; 
-    const uint8_t* mp3Data;    
-    uint8_t*       mp3InBuf;
-    int            mp3BytesLeft;
-    int            mp3ReadOffset;
-    uint32_t       mp3Offset; 
-    uint32_t       mp3Bitrate; 
-    bool           isMP3;  
-    volatile bool  seeking;
-    bool           isVBR;   
+    void*             mp3Decoder;
+    const uint8_t*    mp3Data;
+    uint8_t*          mp3InBuf;
+    int               mp3BytesLeft;
+    int               mp3ReadOffset;
+    uint32_t          mp3Offset;
+    uint32_t          mp3Bitrate;
+    bool              isMP3;
+    bool              isVBR;
     #endif
 };
 
 typedef void (*SynthCustomFXCallback)(int32_t* busBuffer, int samples, int16_t* ep, int32_t* es);
+#if SYNTH_STEREO
+typedef void (*SynthCustomStereoFXCallback)(int32_t* busL, int32_t* busR, int samples, int16_t* ep, int32_t* es);
+#endif
 
 struct FXNode {
-    int32_t               es[SYNTH_FX_STATES] __attribute__((aligned(8)));
-    int16_t               ep[SYNTH_FX_PARAMS];
-    SynthCustomFXCallback customFXFunc;
-    FXType                type;
-    bool                  active;
+    int32_t                     es[SYNTH_FX_STATES] __attribute__((aligned(8)));
+    int16_t                     ep[SYNTH_FX_PARAMS];
+    void*                       fxData;
+    SynthCustomFXCallback       customFXFunc;
+#if SYNTH_STEREO
+    SynthCustomStereoFXCallback customStereoFXFunc;
+#endif
+    FXType                      type;
+    volatile bool               active;
 };
 
 struct AudioBus {
-    bool    active;
-    uint8_t mixLevel;
-    FXNode  fxChain[MAX_FX_PER_BUS];
+    bool             active;
+    uint8_t          mixLevel;
+    volatile uint8_t fxMask;
+#if SYNTH_STEREO
+    int16_t  pan;
+    uint16_t panGainL;
+    uint16_t panGainR;
+    uint16_t stereoWidth;
+#endif
+    FXNode   fxChain[MAX_FX_PER_BUS];
 };
 
 struct Voice;
 typedef void (*SynthCustomWaveCallback)(Voice* vo, int32_t* mixBuffer, int samples, int32_t startEnv, int32_t envStep);
+#if SYNTH_STEREO
+typedef void (*SynthCustomStereoWaveCallback)(Voice* vo, int32_t* mixBufferL, int32_t* mixBufferR, int samples, int32_t startEnv, int32_t envStep);
+#endif
 
 struct Voice {
-    // 64-bit (Alinhamento de 8 bytes para performance bruta no Xtensa)
     int64_t            slideVolCurr;
     int64_t            slideVolInc;
 
-    // union for memory economy
     union {
-        // Mode: WAVE_SAMPLE & WAVE_STREAM
         struct {
             uint64_t samplePos1616;
             uint32_t sampleInc1616;
@@ -294,27 +497,25 @@ struct Voice {
             uint32_t sampleLoopEnd;
             uint32_t streamFracAccum;
         };
-        // Mode: : WAVE_CUSTOM
-        uint32_t cw[SYNTH_CUSTOM_WAVE_STATES]; 
+        uint32_t cw[SYNTH_CUSTOM_WAVE_STATES];
     };
 
-    // Dedicated Wavetable Memory (Shielded from -O3 Cache Drops)
     const void*        wtData;
     uint32_t           wtSize;
 
-    // Pointers
-    Instrument*        inst;
-    Instrument_Sample* instSample;
-    SynthCustomWaveCallback customWaveFunc;
+    Instrument*                   inst;
+    Instrument_Sample*            instSample;
+    SynthCustomWaveCallback       customWaveFunc;
+#if SYNTH_STEREO
+    SynthCustomStereoWaveCallback customStereoWaveFunc;
+#endif
 
-    // 32-bit (4 bytes) - ADSR isolado e seguro contra corrupção
     uint32_t           rateAttack;
     uint32_t           rateDecay;
     uint32_t           rateRelease;
     uint32_t           levelSustain;
     uint32_t           controlTick;
 
-    // Outros campos de 32-bit (4 bytes)
     uint32_t           phase;
     uint32_t           phaseInc;
     uint32_t           currEnvVal;
@@ -336,11 +537,16 @@ struct Voice {
     int32_t            slideFreqDeltaInc;
     int32_t            slideFreqRem;
     int32_t            slideFreqRemAcc;
+#if SYNTH_STEREO
+    uint32_t           panLfoPhase;
+    uint32_t           panLfoRateInc;
+    int32_t            slidePanCurr;
+    int32_t            slidePanInc;
+    uint32_t           slidePanTicksRemaining;
+#endif
 
-    // Large arrays
     uint32_t           arpNotes[MAX_ARP_NOTES];
 
-    // 16-bit (2 bytes)
     uint16_t           trmDepth;
     uint16_t           trmModGain;
     uint16_t           currWaveId;
@@ -356,9 +562,16 @@ struct Voice {
     int16_t            noiseSample;
     int16_t            streamTrackId;
     int16_t            lastStreamSample;
-    int16_t            cp[SYNTH_CUSTOM_PARAMS_PER_VOICE]; // Custom parameters for WAVE_CUSTOM (Indices 0 to 3)
+    int16_t            cp[SYNTH_CUSTOM_PARAMS_PER_VOICE];
+#if SYNTH_STEREO
+    int16_t            pan;
+    int16_t            slidePanTarget;
+    uint16_t           panGainL;
+    uint16_t           panGainR;
+    uint16_t           panLfoDepth;
+    uint16_t           stereoWidth;
+#endif
 
-    // 8-bit, Bools e Enums (1 byte)
     EnvState           envState;
     WaveType           type;
     WaveType           currWaveType;
@@ -372,6 +585,10 @@ struct Voice {
     uint8_t            arpLen;
     uint8_t            arpIdx;
     uint8_t            targetBus;
+#if SYNTH_STEREO
+    uint8_t            panState;
+    bool               slidePanActive;
+#endif
     bool               active;
     bool               slideFreqActive;
     bool               slideVolActive;
@@ -390,20 +607,36 @@ public:
     typedef void (*SynthDSPCallback)(int32_t* mixBuffer, int numSamples, int16_t* dp);
     typedef void (*SynthControlCallback)();
     typedef void (*SynthCustomOutputCallback)(int16_t* samples, int numSamples);
+#if SYNTH_STEREO
+    typedef void (*SynthStereoDSPCallback)(int32_t* mixL, int32_t* mixR, int numSamples, int16_t* dp);
+    typedef void (*SynthCustomStereoOutputCallback)(int16_t* samplesLR, int numSamplePairs);
+#endif
 
     // --- Initialization & System ---
     void end();
     bool begin(int dacPin);
+    bool begin(int dacPinL, int dacPinR);
     bool begin(int bckPin, int wsPin, int dataPin);
     bool begin(int bckPin, int wsPin, int dataPin, I2S_Depth i2sDepth);
     bool begin(int bckPin, int wsPin, int dataPin, int mclkPin, I2S_Depth i2sDepth);
     bool begin(int dataPin, SynthOutputMode mode, int clkPin, int wsPin, I2S_Depth i2sDepth);
     bool begin(int dataPin, SynthOutputMode mode, int clkPin, int wsPin, int mclkPin, I2S_Depth i2sDepth);
 
+    bool beginDAC(int pinL, int pinR = -1);
+    bool beginPWM(int pinL, int pinR = -1);
+    bool beginPDM_DAC(int pinL, int pinR = -1);
+
     bool beginCustom(uint32_t sampleRate = 48000, SynthCustomOutputCallback customOutput = nullptr);
+#if SYNTH_STEREO
+    bool beginCustomStereo(uint32_t sampleRate = 48000, SynthCustomStereoOutputCallback customOutput = nullptr);
+#else
+    inline bool beginCustomStereo(uint32_t sampleRate = 48000, SynthCustomOutputCallback customOutput = nullptr) {
+        return beginCustom(sampleRate, customOutput);
+    }
+#endif
     bool beginHeadless(uint32_t sampleRate = 48000);
 
-    void setSampleRate(uint32_t rate); // EXPERIMENTAL, Use at your own risk. Changing sample rate may cause instability.
+    void setSampleRate(uint32_t rate);
     void setControlRateHz(uint16_t hz);
     void setMasterVolume(uint16_t volume);
     void setVolDepthBase(uint8_t bits);
@@ -416,6 +649,13 @@ public:
     void setCustomDSP(SynthDSPCallback dspFunc);
     void setCustomControl(SynthControlCallback ctrlFunc);
     void setCustomOutput(SynthCustomOutputCallback outFunc);
+#if SYNTH_STEREO
+    void setCustomStereoDSP(SynthStereoDSPCallback dspFunc);
+    void setCustomStereoOutput(SynthCustomStereoOutputCallback outFunc);
+#else
+    inline void setCustomStereoDSP(SynthDSPCallback dspFunc) { setCustomDSP(dspFunc); }
+    inline void setCustomStereoOutput(SynthCustomOutputCallback outFunc) { setCustomOutput(outFunc); }
+#endif
 
     // --- Custom Output ---
     void generateSamples(int16_t* outBuffer, int numSamples);
@@ -434,8 +674,97 @@ public:
     void setDSPParam(uint8_t paramId, int16_t value);
     void setVoiceBus(uint16_t voice, uint8_t busId);
     void setBusFX(uint8_t busId, uint8_t slotId, FXType type, SynthCustomFXCallback cb = nullptr);
+#if SYNTH_STEREO
+    void setCustomStereoWave(uint16_t voice, SynthCustomStereoWaveCallback cb);
+    void setBusFX(uint8_t busId, uint8_t slotId, FXType type, SynthCustomStereoFXCallback cb);
+#endif
     void setBusFXParam(uint8_t busId, uint8_t slotId, uint8_t paramId, int16_t value);
     void setBusMix(uint8_t busId, uint8_t volume);
+
+    // --- Built-in Bus FX Shortcuts ---
+    void setBusOverdrive(uint8_t busId, uint8_t slotId, uint8_t drive = 128, uint8_t tone = 160, uint8_t level = 180, uint8_t mode = 0, uint8_t mix = 255);
+    void setBusChorus(uint8_t busId, uint8_t slotId, uint16_t rateCentiHz = 80, uint8_t depth = 120, uint8_t delayMs = 12, int16_t feedback = 20, uint8_t mix = 128, uint8_t stereoPhase = 180);
+    void setBusFlanger(uint8_t busId, uint8_t slotId, uint16_t rateCentiHz = 35, uint8_t depth = 180, uint8_t delayTenthsMs = 15, int16_t feedback = 140, uint8_t mix = 128, uint8_t stereoPhase = 90);
+    void setBusPhaser(uint8_t busId, uint8_t slotId, uint16_t rateCentiHz = 50, uint8_t depth = 180, int16_t feedback = 120, uint8_t stages = 4, uint8_t mix = 128, uint8_t stereoPhase = 90);
+    void setBusDelay(uint8_t busId, uint8_t slotId, uint16_t delayMs = 250, uint8_t feedback = 120, uint8_t damp = 100, bool pingPong = true, uint8_t mix = 110);
+    void setBusReverb(uint8_t busId, uint8_t slotId, uint8_t roomSize = 160, uint8_t damping = 110, uint8_t width = 255, uint8_t mix = 90);
+    void setBusFilter(uint8_t busId, uint8_t slotId, uint16_t cutoffHz = 2000, uint16_t resonance = 70, uint8_t mode = 0, uint8_t mix = 255);
+    void setBusCompressor(uint8_t busId, uint8_t slotId, uint8_t threshold = 140, uint8_t ratio = 4, uint16_t attackMs = 5, uint16_t releaseMs = 80, uint8_t makeup = 32, uint8_t mix = 255);
+    void setBusBitcrush(uint8_t busId, uint8_t slotId, uint8_t bits = 8, uint8_t downsample = 4, uint8_t mix = 255);
+    void removeBusFX(uint8_t busId, uint8_t slotId);
+    void clearBusFX(uint8_t busId);
+
+    // --- Modular LFO & Routing Matrix ---
+    void     setLFO(uint8_t lfoId, LFOWave wave, uint32_t rateCentiHz, uint16_t startPhaseDeg = 0, uint16_t delayMs = 0, uint16_t fadeInMs = 0, bool oneShot = false);
+    void     setLFORate(uint8_t lfoId, uint32_t rateCentiHz);
+    void     setLFOWave(uint8_t lfoId, LFOWave wave);
+    void     setLFOPhase(uint8_t lfoId, uint16_t phaseDeg);
+    void     setLFODuty(uint8_t lfoId, uint8_t duty);
+    void     setLFOEnabled(uint8_t lfoId, bool enable);
+    void     setLFOCallback(uint8_t lfoId, SynthLFOCallback cb);
+    void     retriggerLFO(uint8_t lfoId);
+    void     retriggerAllLFOs();
+    void     removeLFO(uint8_t lfoId);
+    int16_t  getLFOValue(uint8_t lfoId);
+    uint16_t getLFOValueUnipolar(uint8_t lfoId);
+    uint8_t  getLFOValue8Bit(uint8_t lfoId);
+    int32_t  getLFOValueScaled(uint8_t lfoId, int32_t minVal, int32_t maxVal);
+    bool     isLFOActive(uint8_t lfoId);
+
+    int8_t routeLFOToVoice(uint8_t lfoId, LFOTarget target, uint16_t voiceStart, uint16_t voiceEnd, int32_t depthOrMin, int32_t maxVal = 0, bool rangeMode = false, uint8_t paramIdx = 0);
+    int8_t assignLFOToVoice(uint8_t lfoId, LFOTarget target, uint16_t voice, int32_t depth, uint8_t paramIdx = 0);
+    int8_t assignLFOToVoiceRange(uint8_t lfoId, LFOTarget target, uint16_t voiceStart, uint16_t voiceEnd, int32_t minVal, int32_t maxVal, uint8_t paramIdx = 0);
+    int8_t routeLFOToBusFX(uint8_t lfoId, uint8_t busId, uint8_t slotId, uint8_t paramId, int32_t depthOrMin, int32_t maxVal = 0, bool rangeMode = false);
+    int8_t assignLFOToBusFX(uint8_t lfoId, uint8_t busId, uint8_t slotId, uint8_t paramId, int32_t minVal, int32_t maxVal);
+    int8_t routeLFOToBus(uint8_t lfoId, LFOTarget target, uint8_t busId, int32_t depthOrMin, int32_t maxVal = 0, bool rangeMode = false);
+    int8_t routeLFOToMaster(uint8_t lfoId, LFOTarget target, int32_t depthOrMin, int32_t maxVal = 0, bool rangeMode = false, uint8_t paramIdx = 0);
+    int8_t routeLFOToLFO(uint8_t srcLfoId, LFOTarget target, uint8_t dstLfoId, int32_t depthOrMin, int32_t maxVal = 0, bool rangeMode = false);
+    void   setLFORouteDepth(uint8_t routeId, int32_t depthOrMin, int32_t maxVal = 0, bool rangeMode = false);
+    void   setLFORouteActive(uint8_t routeId, bool active);
+    void   removeLFORoute(uint8_t routeId);
+    void   clearLFORoutes(uint8_t lfoId);
+    void   clearAllLFORoutes();
+
+    // --- Stereo & Panning ---
+#if SYNTH_STEREO
+    void     setPanLaw(PanLaw law);
+    PanLaw   getPanLaw();
+    void     setPanBitDepth(uint8_t bits);
+    void     setPan(uint16_t voice, int32_t pan);
+    void     setPanMIDI(uint16_t voice, uint8_t midiPan);
+    int32_t  getPan(uint16_t voice);
+    void     slidePan(uint16_t voice, int32_t startPan, int32_t endPan, uint32_t durationMs);
+    void     slidePanTo(uint16_t voice, int32_t endPan, uint32_t durationMs);
+    void     setAutoPan(uint16_t voice, uint32_t rateCentiHz, uint16_t depth);
+    void     setAutoPanPhase(uint16_t voice, uint16_t phaseDegrees);
+    void     setStereoWidth(uint16_t voice, uint16_t width);
+    uint16_t getStereoWidth(uint16_t voice);
+    void     setBusPan(uint8_t busId, int32_t pan);
+    void     setBusWidth(uint8_t busId, uint16_t width);
+    void     setMasterPan(int32_t pan);
+    int32_t  getMasterPan();
+    void     setMasterStereoWidth(uint16_t width);
+    uint16_t getMasterStereoWidth();
+#else
+    inline void     setPanLaw(PanLaw) {}
+    inline PanLaw   getPanLaw() { return (PanLaw)SYNTH_PAN_LAW; }
+    inline void     setPanBitDepth(uint8_t) {}
+    inline void     setPan(uint16_t, int32_t) {}
+    inline void     setPanMIDI(uint16_t, uint8_t) {}
+    inline int32_t  getPan(uint16_t) { return 0; }
+    inline void     slidePan(uint16_t, int32_t, int32_t, uint32_t) {}
+    inline void     slidePanTo(uint16_t, int32_t, uint32_t) {}
+    inline void     setAutoPan(uint16_t, uint32_t, uint16_t) {}
+    inline void     setAutoPanPhase(uint16_t, uint16_t) {}
+    inline void     setStereoWidth(uint16_t, uint16_t) {}
+    inline uint16_t getStereoWidth(uint16_t) { return 256; }
+    inline void     setBusPan(uint8_t, int32_t) {}
+    inline void     setBusWidth(uint8_t, uint16_t) {}
+    inline void     setMasterPan(int32_t) {}
+    inline int32_t  getMasterPan() { return 0; }
+    inline void     setMasterStereoWidth(uint16_t) {}
+    inline uint16_t getMasterStereoWidth() { return 256; }
+#endif
 
     // --- Envelope ---
     void setEnv(uint16_t voice, uint16_t a, uint16_t d, uint8_t s, uint16_t r);
@@ -463,7 +792,7 @@ public:
     void detachInstrument(uint16_t voice, WaveType newWaveType);
 
     // --- Sample Control ---
-    bool registerSample(uint16_t sampleId, const void* data, uint32_t length, uint32_t sampleRate, uint32_t rootFreqCentiHz, BitDepth depth = BITS_16);
+    bool registerSample(uint16_t sampleId, const void* data, uint32_t length, uint32_t sampleRate, uint32_t rootFreqCentiHz, BitDepth depth = BITS_16, uint8_t numChannels = 1);
     void setSample(uint16_t voice, uint16_t sampleId, LoopMode loopMode = LOOP_OFF, uint32_t loopStart = 0, uint32_t loopEnd = 0);
     void setSampleLoop(uint16_t voice, LoopMode loopMode, uint32_t loopStart, uint32_t loopEnd);
 
@@ -513,9 +842,9 @@ public:
     
     // --- SD Recording ---
 #ifdef ARDUINO
-    bool startRecording(fs::FS &fs, const char* path);
+    bool startRecording(fs::FS &fs, const char* path, bool stereo = (SYNTH_STEREO != 0));
 #else
-    bool startRecording(const char* path);
+    bool startRecording(const char* path, bool stereo = (SYNTH_STEREO != 0));
 #endif
     void stopRecording();
     bool isRecordingActive();
@@ -550,6 +879,9 @@ public:
     volatile SynthPWMState pwm_state = PWM_STATE_ACTIVE;
     volatile uint32_t pwm_ramp_phase = 0;
     volatile uint32_t pwm_ramp_inc = 0;
+    #if SYNTH_STEREO
+    volatile bool pwm_is_stereo = false;
+    #endif
 
     // --- PWM Thermal & Click Protection ---
     void armPWM(uint16_t rampMs = 20, bool wait = true);
@@ -565,6 +897,20 @@ private:
 
     AudioBus busesConfig[MAX_BUSES];
 
+    volatile uint32_t _renderSeq = 0;
+    void releaseFXNode(uint8_t busId, uint8_t slotId);
+    void clearAllBusFXBuffers();
+    void freeAllBusFX();
+    bool initBuiltInFXNode(uint8_t busId, uint8_t slotId, FXType type, uint32_t extraMs = 0);
+
+    ModLFO            lfos[MAX_LFOS];
+    ModLFORoute       lfoRoutes[MAX_LFO_ROUTES];
+    volatile uint32_t _activeLfoMask  = 0;
+    volatile uint8_t  _maxActiveRoute = 0;
+    int8_t allocLFORoute(uint8_t lfoId, LFOTarget target, uint16_t targetStart, uint16_t targetEnd, uint8_t subId, uint8_t paramIdx, int32_t depthOrMin, int32_t maxVal, bool rangeMode);
+    void   resetLFORoute(ModLFORoute* rt);
+    void   processModularLFOs();
+
     StreamTrack   streams[MAX_STREAMS];
     TaskHandle_t  streamTaskHandle = NULL;
     TaskHandle_t  audioTaskHandle = NULL;
@@ -579,6 +925,7 @@ private:
     int16_t*          _recBuffer = nullptr;
     volatile uint32_t _recHead = 0;
     volatile uint32_t _recTail = 0;
+    bool              _recStereo = false;
 
     static void sdWriterTask(void* param);
 #ifdef ARDUINO
@@ -614,17 +961,44 @@ private:
     int _bckPin  = -1;
     int _wsPin   = -1;
     int _mclkPin = -1;
+    int _pinR    = -1;
 
     static void audioTask(void* param);
 
+    #if SYNTH_STEREO
+    PanLaw   _panLaw       = (PanLaw)SYNTH_PAN_LAW;
+    uint8_t  _panShift     = 8;
+    int16_t  _masterPan    = 0;
+    uint16_t _masterPanGainL = 32768;
+    uint16_t _masterPanGainR = 32768;
+    uint16_t _masterWidth  = 256;
+    uint16_t _centerGainQ15 = (SYNTH_PAN_LAW == 0) ? 23170 : (SYNTH_PAN_LAW == 1) ? 16384 : 32768;
+
+    int32_t* _pullBusL[MAX_BUSES] = {nullptr};
+    int32_t* _pullBusR[MAX_BUSES] = {nullptr};
+    int32_t* _pullBusC[MAX_BUSES] = {nullptr};
+    int32_t* _pullVoiceScratch = nullptr;
+    int16_t* _pullStereoOut = nullptr;
+
+    void updateVoicePanGains(Voice* vo, int32_t effPan16);
+    void computePanLawGains(int32_t pan16, bool stereoSource, uint16_t& outL, uint16_t& outR);
+    bool ensurePullBuffers();
+    void freePullBuffers();
+    void render(void* buffer, int32_t** busL, int32_t** busR, int32_t** busC, int32_t* voiceScratch, int samples);
+#else
     void render(void* buffer, int32_t** busBuffers, int samples);
+#endif
     void renderLoop();
     void processControl();
     int16_t fetchWavetableSample(uint16_t id, uint32_t phase);
 
-    SynthDSPCallback          _customDSP     = nullptr;
-    SynthControlCallback      _customControl = nullptr;
-    SynthCustomOutputCallback _customOutput  = nullptr;
+    SynthDSPCallback                _customDSP       = nullptr;
+    SynthControlCallback            _customControl   = nullptr;
+    SynthCustomOutputCallback       _customOutput    = nullptr;
+#if SYNTH_STEREO
+    SynthStereoDSPCallback          _customStereoDSP    = nullptr;
+    SynthCustomStereoOutputCallback _customStereoOutput = nullptr;
+#endif
 
     // --- Performance Measurement ---
     volatile float _dspLoad = 0.0f;
