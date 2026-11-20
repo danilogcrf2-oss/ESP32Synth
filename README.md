@@ -202,7 +202,9 @@ All static engine capacities and feature toggles live in `ESP32Synth_Config.hpp`
 | **Absolute Max (`SYNTH_STEREO 0`, `SYNTH_INTERPOLATE_SINE 0`)** | **340 voices** (jitter at 346) | **500 voices** (jitter at 515) | Set non-essential cache limits to `0`/`1` to free SRAM for voices |
 
 ### DMA Latency Formula
-$$\text{Latency (ms)} = \frac{\text{SYNTH\_DMA\_BUF\_LEN} \times \text{SYNTH\_DMA\_BUF\_COUNT}}{\text{Sample Rate}} \times 1000$$
+$$\text{Latency (ms)} = \frac{\text{Buffer Length} \times \text{Buffer Count}}{\text{Sample Rate}} \times 1000$$
+
+*(Where `Buffer Length = SYNTH_DMA_BUF_LEN` and `Buffer Count = SYNTH_DMA_BUF_COUNT`)*
 
 * **High Polyphony (Default)**: `512` × `6` @ 48 kHz ≈ **64.0 ms** latency.
 * **Balanced (MIDI Keyboards)**: `256` × `4` @ 48 kHz ≈ **21.3 ms** latency.
