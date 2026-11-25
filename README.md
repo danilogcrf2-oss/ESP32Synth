@@ -1,11 +1,11 @@
-# ESP32Synth v2.6.0 — Bare-Metal Polyphonic Stereo DSP Engine & Multi-Core Streaming for ESP32
+# ESP32Synth v2.6.1 — Bare-Metal Polyphonic Stereo DSP Engine & Multi-Core Streaming for ESP32
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/danilogcrf2-oss/ESP32Synth/main/banner.jpg" alt="ESP32Synth banner" width="100%">
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.6.0-green.svg" alt="Version">
+  <img src="https://img.shields.io/badge/version-2.6.1-green.svg" alt="Version">
   <img src="https://img.shields.io/badge/platform-ESP32%20%7C%20ESP32--S3%20%7C%20ESP32--P4%20%7C%20ESP32--S2%20%7C%20ESP32--C3%20%7C%20ESP32--C6-orange.svg" alt="Platform">
   <img src="https://img.shields.io/badge/framework-Arduino%20%7C%20ESP--IDF-blue.svg" alt="Framework">
   <img src="https://img.shields.io/badge/audio-True%20Stereo%20%7C%20Fixed--Point%20DSP-purple.svg" alt="Audio">
@@ -14,7 +14,7 @@
 
 A bare-metal, polyphonic **True Stereo** synthesizer, multi-bus fixed-point DSP processor, and multi-core audio streaming engine for the Espressif ESP32 family (ESP32, ESP32-S3, ESP32-P4, ESP32-S2, ESP32-C3, ESP32-C6). Built for raw integer execution, ultra-low latency, extreme voice density, modular modulation routing, and multi-core streaming. Fully compatible with **Arduino IDE** and **PlatformIO** (both Arduino and native ESP-IDF).
 
-### ✨ What's New in v2.6.0
+### ✨ What's New in v2.6.1
 * **True Stereo Synthesis & Smart Zero-Overhead Panning (`SYNTH_STEREO`)**: Full dual-channel audio pipeline across oscillators, wavetables, PCM samples (mono & stereo), streams, buses, FX, custom hooks, and SD recording. Centered and hard-panned voices automatically bypass stereo multipliers using dedicated fast-path center/L/R accumulators (`PAN_CENTER`, `PAN_HARD_L`, `PAN_HARD_R`, `PAN_STEREO`), preserving high polyphony while delivering full stereo width (`Mid/Side` processing from `0` to `512`), pan slides, per-voice Auto-Pan LFO, and 3 selectable Pan Laws (`PAN_LAW_CONSTANT_POWER`, `PAN_LAW_LINEAR`, `PAN_LAW_BALANCE`). Toggle `SYNTH_STEREO 0` in `ESP32Synth_Config.hpp` anytime for Classic Mono mode with maximum voice density and minimal RAM.
 * **9 Built-In Fixed-Point Bus FX + Master Post-Mixdown FX Chain (`ESP32Synth_FX.hpp`)**: Expanded from 3 to **4 FX slots per bus (`MAX_FX_PER_BUS = 4`)**, and **Bus 0** now executes its own post-mixdown Master FX chain! Built-in zero-float effects include **Overdrive** (Soft/Tube/Fuzz), **Chorus**, **Flanger**, **Phaser** (2–8 stages), **Delay** (with pitch-slewed time modulation, ping-pong, damping, and PSRAM fallback), **Reverb** (4-comb Schroeder + 2 all-pass + width), **Biquad Filter** (Q28 TDF-II with cached coefficients), **Compressor**, and **Bitcrusher** — all with dedicated shortcut methods and full mono/stereo engines.
 * **Modular LFO & Modulation Matrix (`ESP32Synth_LFO.hpp`)**: Up to **16 global LFOs (`MAX_LFOS`)** with 7 waveforms (`LFO_SINE`, `LFO_TRIANGLE`, `LFO_SAW_UP`, `LFO_SAW_DOWN`, `LFO_SQUARE` with variable duty cycle, `LFO_SAMPLE_HOLD`, `LFO_SMOOTH_RANDOM`), start phase, delay, fade-in, one-shot mode, retriggering, and user callbacks. Route up to **32 modulation slots (`MAX_LFO_ROUTES`)** across **15 targets** (Voice PW/CP/Pitch/Vol/Pan, Bus Mix/Pan/Width/FX Params, Global DSP Params, Master Vol/Pan/Width, and **LFO-to-LFO** Rate/Amp cross-modulation) using **Range Mode**, **Additive Depth Mode**, or stacked 2-pass modulation with automatic parameter restoration.
@@ -63,7 +63,7 @@ ESP32Synth delivers high polyphonic voice density (up to **340** voices on Class
 * **Zero-Overhead Pan Fast Paths**: Centered mono voices (`pan == 0`) render once into a shared per-bus center accumulator (`busC[b]`) and merge into L/R once per block; hard-panned voices render directly into `busL[b]` or `busR[b]`; only off-center or stereo voices invoke dual-channel renderers.
 * **Sub-Block Envelope Processing**: ADSR curves calculate exact stage sample spans with SIMD-aligned (`4`-sample) boundaries, eliminating per-sample division overhead.
 
-### Signal Flow Pipeline (v2.6.0 Stereo Mode)
+### Signal Flow Pipeline (v2.6.1 Stereo Mode)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -346,7 +346,7 @@ Useful for VU meters, LED visualizers, OLED scopes, and voice stealers:
 
 ## 7. True Stereo Engine, Panning Laws & Stereo Width
 
-When `SYNTH_STEREO == 1` (default in v2.6.0), every voice, auxiliary bus, FX node, and master stage operates in stereo without sacrificing mono efficiency.
+When `SYNTH_STEREO == 1` (default in v2.6.1), every voice, auxiliary bus, FX node, and master stage operates in stereo without sacrificing mono efficiency.
 
 ### Zero-Overhead `PanState` Architecture
 * **`PAN_CENTER`**: Voices with `pan == 0` render once into a dedicated per-bus center buffer (`busC[b]`) and merge into `busL[b]` and `busR[b]` once per block using `_centerGainQ15` (with SIMD acceleration on ESP32-S3).
@@ -440,7 +440,7 @@ synth.setBusFXParam(1, 1, FX_FILTER_CUTOFF, 4500);
 
 ## 9. Modular LFO & Modulation Matrix
 
-v2.6.0 introduces **`MAX_LFOS = 16`** independent modulation generators and **`MAX_LFO_ROUTES = 32`** matrix routes running at `controlRateHz`.
+v2.6.1 introduces **`MAX_LFOS = 16`** independent modulation generators and **`MAX_LFO_ROUTES = 32`** matrix routes running at `controlRateHz`.
 
 ### LFO Waveforms (`LFOWave`)
 `LFO_SINE` | `LFO_TRIANGLE` | `LFO_SAW_UP` | `LFO_SAW_DOWN` | `LFO_SQUARE` (duty `0..255`) | `LFO_SAMPLE_HOLD` | `LFO_SMOOTH_RANDOM`
