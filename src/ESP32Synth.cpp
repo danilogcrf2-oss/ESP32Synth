@@ -661,7 +661,7 @@ void ESP32Synth::renderLoop() {
 
 #if SYNTH_STEREO
 void IRAM_ATTR ESP32Synth::render(void* buffer, int32_t** busL, int32_t** busR, int32_t** busC, int32_t* voiceScratch, int samples) {
-    _renderSeq++;
+    _renderSeq = _renderSeq + 1U;
     __sync_synchronize();
     bool busUsedC[MAX_BUSES] = {false};
 
@@ -939,11 +939,11 @@ void IRAM_ATTR ESP32Synth::render(void* buffer, int32_t** busL, int32_t** busR, 
         }
     }
     __sync_synchronize();
-    _renderSeq++;
+    _renderSeq = _renderSeq + 1U;
 }
 #else
 void IRAM_ATTR ESP32Synth::render(void* buffer, int32_t** busBuffers, int samples) {
-    _renderSeq++;
+    _renderSeq = _renderSeq + 1U;
     __sync_synchronize();
     memset(busBuffers[0], 0, samples * sizeof(int32_t));
     for (int b = 1; b < MAX_BUSES; b++) {
@@ -1092,7 +1092,7 @@ void IRAM_ATTR ESP32Synth::render(void* buffer, int32_t** busBuffers, int sample
         }
     }
     __sync_synchronize();
-    _renderSeq++;
+    _renderSeq = _renderSeq + 1U;
 }
 #endif
 

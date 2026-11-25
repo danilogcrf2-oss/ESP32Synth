@@ -335,7 +335,9 @@ bool ESP32Synth::begin(int dataPin, SynthOutputMode mode, int clkPin, int wsPin,
         ledc_channel.gpio_num              = dataPin;
         ledc_channel.speed_mode            = SYNTH_PWM_MODE;
         ledc_channel.channel               = LEDC_CHANNEL_0;
+        #if ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(6, 0, 0)
         ledc_channel.intr_type             = LEDC_INTR_DISABLE;
+#endif
         ledc_channel.timer_sel             = LEDC_TIMER_0;
         ledc_channel.duty                  = 512;
         ledc_channel.hpoint                = 0;
@@ -357,7 +359,11 @@ bool ESP32Synth::begin(int dataPin, SynthOutputMode mode, int clkPin, int wsPin,
         REG_WRITE(LEDC_INT_ENA_REG, REG_READ(LEDC_INT_ENA_REG) | SYNTH_LEDC_TIMER_OVF_INT_ENA);
 
     } else {
+        #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 0, 0)
+        int requested_port = (mode == SMODE_PDM) ? I2S_NUM_0 : I2S_NUM_AUTO;
+#else
         i2s_port_t requested_port = (mode == SMODE_PDM) ? I2S_NUM_0 : I2S_NUM_AUTO;
+#endif
         i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(requested_port, I2S_ROLE_MASTER);
 
         chan_cfg.dma_desc_num  = SYNTH_DMA_BUF_COUNT;

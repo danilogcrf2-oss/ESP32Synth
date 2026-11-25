@@ -69,7 +69,9 @@
 
 #endif
 
+#include "esp_idf_version.h"
 #include "esp_heap_caps.h"
+#include "driver/gpio.h"
 #include "driver/i2s_pdm.h"
 #include "driver/i2s_std.h"
 #include "driver/ledc.h"
